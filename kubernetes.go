@@ -56,22 +56,22 @@ type KubernetesPlan struct {
 
 // KubernetesCluster represents a Kubernetes cluster.
 type KubernetesCluster struct {
-	UUID           string              `json:"uuid"`
-	Name           string              `json:"name"`
-	Label          string              `json:"label"`
-	Status         string              `json:"status"`
-	Version        string              `json:"version"`
-	HAControlPlane bool                `json:"ha_control_plane"`
-	APIEndpoint    string              `json:"api_endpoint"`
-	PodCIDR        string              `json:"pod_cidr"`
-	ServiceCIDR    string              `json:"service_cidr"`
-	BillingType    string              `json:"billing_type"`
-	Location       KubernetesLocation  `json:"location"`
-	Network        *KubernetesNetwork  `json:"network,omitempty"`
-	NodePools      []NodePool          `json:"node_pools"`
-	WorkerCount    int                 `json:"worker_count"`
-	NodePoolCount  int                 `json:"node_pool_count"`
-	CreatedAt      string              `json:"created_at"`
+	UUID           string             `json:"uuid"`
+	Name           string             `json:"name"`
+	Label          string             `json:"label"`
+	Status         string             `json:"status"`
+	Version        string             `json:"version"`
+	HAControlPlane bool               `json:"ha_control_plane"`
+	APIEndpoint    string             `json:"api_endpoint"`
+	PodCIDR        string             `json:"pod_cidr"`
+	ServiceCIDR    string             `json:"service_cidr"`
+	BillingType    string             `json:"billing_type"`
+	Location       KubernetesLocation `json:"location"`
+	Network        *KubernetesNetwork `json:"network,omitempty"`
+	NodePools      []NodePool         `json:"node_pools"`
+	WorkerCount    int                `json:"worker_count"`
+	NodePoolCount  int                `json:"node_pool_count"`
+	CreatedAt      string             `json:"created_at"`
 }
 
 // KubernetesLocation represents a cluster's location.
@@ -89,14 +89,14 @@ type KubernetesNetwork struct {
 
 // NodePool represents a Kubernetes node pool.
 type NodePool struct {
-	UUID         string         `json:"uuid"`
-	Name         string         `json:"name"`
-	DesiredNodes int            `json:"desired_nodes"`
-	MinNodes     int            `json:"min_nodes"`
-	MaxNodes     int            `json:"max_nodes"`
-	AutoScale    bool           `json:"auto_scale"`
-	Plan         NodePoolPlan   `json:"plan"`
-	Nodes        []Node         `json:"nodes"`
+	UUID         string       `json:"uuid"`
+	Name         string       `json:"name"`
+	DesiredNodes int          `json:"desired_nodes"`
+	MinNodes     int          `json:"min_nodes"`
+	MaxNodes     int          `json:"max_nodes"`
+	AutoScale    bool         `json:"auto_scale"`
+	Plan         NodePoolPlan `json:"plan"`
+	Nodes        []Node       `json:"nodes"`
 }
 
 // NodePoolPlan represents the server plan for a node pool.
@@ -213,13 +213,13 @@ type NodeTaint struct {
 
 // UpdateNodePoolRequest represents a request to update a node pool.
 type UpdateNodePoolRequest struct {
-	Name         *string            `json:"name,omitempty"`
-	DesiredNodes *int               `json:"desired_nodes,omitempty"`
-	MinNodes     *int               `json:"min_nodes,omitempty"`
-	MaxNodes     *int               `json:"max_nodes,omitempty"`
-	AutoScale    *bool              `json:"auto_scale,omitempty"`
-	Labels       map[string]string  `json:"labels,omitempty"`
-	Taints       []NodeTaint        `json:"taints,omitempty"`
+	Name         *string           `json:"name,omitempty"`
+	DesiredNodes *int              `json:"desired_nodes,omitempty"`
+	MinNodes     *int              `json:"min_nodes,omitempty"`
+	MaxNodes     *int              `json:"max_nodes,omitempty"`
+	AutoScale    *bool             `json:"auto_scale,omitempty"`
+	Labels       map[string]string `json:"labels,omitempty"`
+	Taints       []NodeTaint       `json:"taints,omitempty"`
 }
 
 // InstallAddonRequest represents a request to install an addon.

@@ -25,20 +25,20 @@ type BaremetalService interface {
 
 // Baremetal represents a baremetal server.
 type Baremetal struct {
-	ID               int          `json:"id"`
-	Hostname         string       `json:"hostname"`
-	Label            string       `json:"label"`
-	ProjectID        int          `json:"project_id"`
-	Status           string       `json:"status"`
-	User             string       `json:"user"`
-	OS               *OSInfo      `json:"os"`
-	Location         Location     `json:"location"`
+	ID               int            `json:"id"`
+	Hostname         string         `json:"hostname"`
+	Label            string         `json:"label"`
+	ProjectID        int            `json:"project_id"`
+	Status           string         `json:"status"`
+	User             string         `json:"user"`
+	OS               *OSInfo        `json:"os"`
+	Location         Location       `json:"location"`
 	BaremetalModel   BaremetalModel `json:"baremetal_model"`
-	FloatingIPs      []FloatingIP `json:"floating_ips"`
-	MonitoringEnable bool         `json:"monitoring_enable"`
-	SSHUsername      string       `json:"ssh_username"`
-	SSHKey           *SSHKeyRef   `json:"ssh_key,omitempty"`
-	CreatedAt        time.Time    `json:"created_at"`
+	FloatingIPs      []FloatingIP   `json:"floating_ips"`
+	MonitoringEnable bool           `json:"monitoring_enable"`
+	SSHUsername      string         `json:"ssh_username"`
+	SSHKey           *SSHKeyRef     `json:"ssh_key,omitempty"`
+	CreatedAt        time.Time      `json:"created_at"`
 }
 
 // SSHKeyRef represents a reference to an SSH key.

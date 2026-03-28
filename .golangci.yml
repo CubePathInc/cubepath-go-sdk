@@ -14,7 +14,7 @@ linters:
     - goimports
     - bodyclose
     - nilerr
-    - exportloopref
+    - copyloopvar
 
 linters-settings:
   errcheck:

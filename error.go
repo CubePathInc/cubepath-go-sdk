@@ -109,7 +109,14 @@ func parseAPIError(resp *http.Response) error {
 				Detail:     v,
 			}
 		default:
-			detailBytes, _ := json.Marshal(v)
+			detailBytes, err := json.Marshal(v)
+			if err != nil {
+				return &APIError{
+					StatusCode: resp.StatusCode,
+					Message:    http.StatusText(resp.StatusCode),
+					Detail:     fmt.Sprintf("%v", v),
+				}
+			}
 			return &APIError{
 				StatusCode: resp.StatusCode,
 				Message:    http.StatusText(resp.StatusCode),

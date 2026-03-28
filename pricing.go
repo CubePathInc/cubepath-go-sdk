@@ -9,7 +9,7 @@ type PricingService interface {
 
 // PricingResponse represents the response from the pricing endpoint.
 type PricingResponse struct {
-	VPS      VPSPricing      `json:"vps"`
+	VPS       VPSPricing       `json:"vps"`
 	Baremetal BaremetalPricing `json:"baremetal,omitempty"`
 }
 
@@ -39,8 +39,8 @@ type BaremetalPricing struct {
 
 // BaremetalLocationPricing represents baremetal pricing for a specific location.
 type BaremetalLocationPricing struct {
-	LocationName   string               `json:"location_name"`
-	Description    string               `json:"description"`
+	LocationName    string                `json:"location_name"`
+	Description     string                `json:"description"`
 	BaremetalModels []BaremetalModelPrice `json:"baremetal_models"`
 }
 

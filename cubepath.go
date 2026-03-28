@@ -322,16 +322,6 @@ func (c *Client) del(ctx context.Context, path string) error {
 	return nil
 }
 
-// delWithBody performs a DELETE request that also reads a response body.
-func (c *Client) delWithBody(ctx context.Context, path string, result interface{}) error {
-	resp, err := c.doRequest(ctx, http.MethodDelete, path, nil)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	return c.handleResponse(resp, result)
-}
-
 // getRaw performs a GET request and returns the raw response body.
 func (c *Client) getRaw(ctx context.Context, path string) ([]byte, error) {
 	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
