@@ -95,9 +95,9 @@ The client exposes the following services:
 // Create a VPS
 task, err := client.VPS.Create(ctx, projectID, &cubepath.CreateVPSRequest{
     Name:         "web-server",
-    PlanName:     "cp.4-8-160",
-    TemplateName: "ubuntu-24.04",
-    LocationName: "MIA",
+    PlanName:     "gp.nano",
+    TemplateName: "debian-12",
+    LocationName: "us-mia-1",
     SSHKeyNames:  []string{"my-key"},
 })
 
@@ -111,7 +111,7 @@ vps, err := client.VPS.Get(ctx, 12345)
 err = client.VPS.Power(ctx, 12345, "restart_vps")
 
 // Resize
-err = client.VPS.Resize(ctx, 12345, "cp.8-16-320")
+err = client.VPS.Resize(ctx, 12345, "gp.pro")
 
 // Destroy
 err = client.VPS.Destroy(ctx, 12345, true) // true = release floating IPs
@@ -158,11 +158,11 @@ err = client.VPS.ISOs().Unmount(ctx, vpsID)
 ```go
 // Deploy a bare metal server
 task, err := client.Baremetal.Deploy(ctx, projectID, &cubepath.CreateBaremetalRequest{
-    ModelName:    "E-2388G",
-    LocationName: "MIA",
+    ModelName:    "c1.metal.plus",
+    LocationName: "us-mia-1",
     Hostname:     "db-server",
     Password:     "secure-password",
-    OSName:       "ubuntu-24.04",
+    OSName:       "debian-12",
 })
 
 // Power operations (start_metal, stop_metal, restart_metal)
@@ -203,11 +203,11 @@ plans, err := client.Kubernetes.ListPlans(ctx, "1.31")
 cluster, err := client.Kubernetes.Create(ctx, &cubepath.CreateKubernetesClusterRequest{
     ProjectID:      1,
     Name:           "production",
-    LocationName:   "MIA",
+    LocationName:   "us-mia-1",
     Version:        "1.31",
     HAControlPlane: true,
     NodePools: []cubepath.CreateNodePoolConfig{
-        {Name: "workers", Plan: "cp.4-8-160", Count: 3},
+        {Name: "workers", Plan: "gp.small", Count: 3},
     },
 })
 
@@ -223,7 +223,7 @@ err = client.Kubernetes.Move(ctx, "cluster-uuid", newProjectID)
 // Node pool management
 pool, err := client.Kubernetes.CreateNodePool(ctx, "cluster-uuid", &cubepath.CreateNodePoolRequest{
     Name:      "gpu-pool",
-    Plan:      "cp.8-32-640",
+    Plan:      "gp.pro",
     Count:     2,
     AutoScale: true,
     Labels:    map[string]string{"workload": "ml"},
@@ -249,7 +249,7 @@ err = client.Kubernetes.UninstallAddon(ctx, "cluster-uuid", "addon-uuid")
 ```go
 network, err := client.Networks.Create(ctx, &cubepath.CreateNetworkRequest{
     Name:         "internal",
-    LocationName: "MIA",
+    LocationName: "us-mia-1",
     IPRange:      "10.0.0.0",
     Prefix:       24,
     ProjectID:    1,
@@ -260,7 +260,7 @@ network, err := client.Networks.Create(ctx, &cubepath.CreateNetworkRequest{
 
 ```go
 // Acquire a new IP
-ip, err := client.FloatingIPs.Acquire(ctx, "IPv4", "MIA")
+ip, err := client.FloatingIPs.Acquire(ctx, "IPv4", "us-mia-1")
 
 // Assign to a VPS
 err = client.FloatingIPs.Assign(ctx, "vps", vpsID, ip.Address)
@@ -320,8 +320,8 @@ soa, err = client.DNS.UpdateSOA(ctx, zone.UUID, &cubepath.UpdateSOARequest{
 // Create a load balancer
 lb, err := client.LoadBalancer.Create(ctx, &cubepath.CreateLoadBalancerRequest{
     Name:         "web-lb",
-    PlanName:     "lb-small",
-    LocationName: "MIA",
+    PlanName:     "lb.small",
+    LocationName: "us-mia-1",
 })
 
 // Add a listener
@@ -361,7 +361,7 @@ err = client.LoadBalancer.DrainTarget(ctx, lb.UUID, listener.UUID, target.UUID)
 // Create a CDN zone
 zone, err := client.CDN.CreateZone(ctx, &cubepath.CreateCDNZoneRequest{
     Name:     "my-cdn",
-    PlanName: "cdn-starter",
+    PlanName: "cdn.starter",
 })
 
 // Add an origin

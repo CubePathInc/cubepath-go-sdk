@@ -13,18 +13,18 @@
 //	// Create a VPS
 //	task, err := client.VPS.Create(ctx, 1, &cubepath.CreateVPSRequest{
 //	    Name:         "my-vps",
-//	    PlanName:     "starter",
-//	    TemplateName: "ubuntu-24.04",
-//	    LocationName: "NYC",
+//	    PlanName:     "gp.nano",
+//	    TemplateName: "debian-12",
+//	    LocationName: "us-mia-1",
 //	})
 //
 //	// Create a Kubernetes cluster
 //	cluster, err := client.Kubernetes.Create(ctx, &cubepath.CreateKubernetesClusterRequest{
 //	    ProjectID:    1,
 //	    Name:         "my-cluster",
-//	    LocationName: "NYC",
+//	    LocationName: "us-mia-1",
 //	    NodePools: []cubepath.CreateNodePoolConfig{
-//	        {Name: "default", Plan: "starter", Count: 3},
+//	        {Name: "default", Plan: "gp.small", Count: 3},
 //	    },
 //	})
 package cubepath
