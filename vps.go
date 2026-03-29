@@ -18,6 +18,7 @@ type VPSService interface {
 	ChangePassword(ctx context.Context, vpsID int, password string) error
 	Reinstall(ctx context.Context, vpsID int, templateName string) error
 	Power(ctx context.Context, vpsID int, action string) error
+	Templates(ctx context.Context) (*VPSTemplatesResponse, error)
 	Backups() VPSBackupService
 	ISOs() VPSISOService
 }
@@ -58,6 +59,23 @@ type VPSTemplate struct {
 	TemplateName string `json:"template_name"`
 	OSName       string `json:"os_name"`
 	Version      string `json:"version"`
+}
+
+// VPSTemplatesResponse represents the response from the VPS templates endpoint.
+type VPSTemplatesResponse struct {
+	OperatingSystems []VPSTemplate      `json:"operating_systems"`
+	Applications     []VPSAppTemplate   `json:"applications"`
+}
+
+// VPSAppTemplate represents an application template.
+type VPSAppTemplate struct {
+	AppName         string `json:"app_name"`
+	Version         string `json:"version"`
+	RecommendedPlan string `json:"recommended_plan"`
+	AppDocs         string `json:"app_docs"`
+	AppWiki         string `json:"app_wiki"`
+	LicenseType     string `json:"license_type"`
+	Description     string `json:"description"`
 }
 
 // Location represents a datacenter location.
@@ -173,6 +191,14 @@ func (s *vpsService) Reinstall(ctx context.Context, vpsID int, templateName stri
 
 func (s *vpsService) Power(ctx context.Context, vpsID int, action string) error {
 	return s.client.post(ctx, fmt.Sprintf("/vps/%d/power/%s", vpsID, action), nil, nil)
+}
+
+func (s *vpsService) Templates(ctx context.Context) (*VPSTemplatesResponse, error) {
+	var templates VPSTemplatesResponse
+	if err := s.client.get(ctx, "/vps/templates", &templates); err != nil {
+		return nil, err
+	}
+	return &templates, nil
 }
 
 func (s *vpsService) Backups() VPSBackupService {
