@@ -137,11 +137,11 @@ func NewClient(apiToken string, opts ...ClientOption) (*Client, error) {
 		baseURL:          DefaultBaseURL,
 		aiGatewayBaseURL: DefaultAIGatewayBaseURL,
 		apiToken:         apiToken,
-		userAgent:    defaultUserAgent,
-		maxRetries:   3,
-		retryWaitMin: 1 * time.Second,
-		retryWaitMax: 30 * time.Second,
-		rateLimiter:  rate.NewLimiter(rate.Every(100*time.Millisecond), 10), // 10 req/sec
+		userAgent:        defaultUserAgent,
+		maxRetries:       3,
+		retryWaitMin:     1 * time.Second,
+		retryWaitMax:     30 * time.Second,
+		rateLimiter:      rate.NewLimiter(rate.Every(100*time.Millisecond), 10), // 10 req/sec
 	}
 
 	for _, opt := range opts {

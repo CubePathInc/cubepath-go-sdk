@@ -119,12 +119,12 @@ type CompletionUsage struct {
 
 // ChatCompletionChunk represents a single chunk in a streaming response.
 type ChatCompletionChunk struct {
-	ID      string              `json:"id"`
-	Object  string              `json:"object"`
-	Created int64               `json:"created"`
-	Model   string              `json:"model"`
+	ID      string                `json:"id"`
+	Object  string                `json:"object"`
+	Created int64                 `json:"created"`
+	Model   string                `json:"model"`
 	Choices []ChatCompletionDelta `json:"choices"`
-	Usage   *CompletionUsage    `json:"usage,omitempty"`
+	Usage   *CompletionUsage      `json:"usage,omitempty"`
 }
 
 // ChatCompletionDelta represents a delta choice in a streaming chunk.
@@ -144,10 +144,10 @@ type DeltaContent struct {
 // ChatCompletionStream reads streaming chat completion chunks from the API.
 // It must be closed after use.
 type ChatCompletionStream struct {
-	reader  *bufio.Reader
-	body    io.ReadCloser
-	done    bool
-	mu      sync.Mutex
+	reader *bufio.Reader
+	body   io.ReadCloser
+	done   bool
+	mu     sync.Mutex
 }
 
 // Recv reads the next chunk from the stream.
