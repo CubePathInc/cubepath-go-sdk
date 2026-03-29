@@ -39,6 +39,9 @@ type Client struct {
 	// Rate limiting
 	rateLimiter *rate.Limiter
 
+	// AI Gateway base URL (separate service)
+	aiGatewayBaseURL string
+
 	// Services
 	Projects     ProjectService
 	SSHKeys      SSHKeyService
@@ -53,6 +56,7 @@ type Client struct {
 	Kubernetes   KubernetesService
 	Pricing      PricingService
 	DDoS         DDoSService
+	AIGateway    AIGatewayService
 }
 
 // ClientOption is a function that configures a Client.
@@ -100,6 +104,13 @@ func WithRetryWaitMax(d time.Duration) ClientOption {
 	}
 }
 
+// WithAIGatewayBaseURL sets a custom base URL for the AI Gateway service.
+func WithAIGatewayBaseURL(baseURL string) ClientOption {
+	return func(c *Client) {
+		c.aiGatewayBaseURL = baseURL
+	}
+}
+
 // WithRateLimiter sets a custom rate limiter.
 func WithRateLimiter(rl *rate.Limiter) ClientOption {
 	return func(c *Client) {
@@ -123,8 +134,9 @@ func NewClient(apiToken string, opts ...ClientOption) (*Client, error) {
 				TLSHandshakeTimeout: 10 * time.Second,
 			},
 		},
-		baseURL:      DefaultBaseURL,
-		apiToken:     apiToken,
+		baseURL:          DefaultBaseURL,
+		aiGatewayBaseURL: DefaultAIGatewayBaseURL,
+		apiToken:         apiToken,
 		userAgent:    defaultUserAgent,
 		maxRetries:   3,
 		retryWaitMin: 1 * time.Second,
@@ -150,13 +162,18 @@ func NewClient(apiToken string, opts ...ClientOption) (*Client, error) {
 	c.Kubernetes = &kubernetesService{client: c}
 	c.Pricing = &pricingService{client: c}
 	c.DDoS = &ddosService{client: c}
+	c.AIGateway = &aiGatewayService{client: c, baseURL: c.aiGatewayBaseURL}
 
 	return c, nil
 }
 
-// newRequest creates a new HTTP request.
+// newRequest creates a new HTTP request using the default base URL.
 func (c *Client) newRequest(ctx context.Context, method, path string, body interface{}) (*http.Request, error) {
-	url := c.baseURL + path
+	return c.newRequestWithURL(ctx, method, c.baseURL+path, body)
+}
+
+// newRequestWithURL creates a new HTTP request with a full URL.
+func (c *Client) newRequestWithURL(ctx context.Context, method, url string, body interface{}) (*http.Request, error) {
 
 	var bodyReader io.Reader
 	if body != nil {
