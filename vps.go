@@ -63,8 +63,8 @@ type VPSTemplate struct {
 
 // VPSTemplatesResponse represents the response from the VPS templates endpoint.
 type VPSTemplatesResponse struct {
-	OperatingSystems []VPSTemplate      `json:"operating_systems"`
-	Applications     []VPSAppTemplate   `json:"applications"`
+	OperatingSystems []VPSTemplate    `json:"operating_systems"`
+	Applications     []VPSAppTemplate `json:"applications"`
 }
 
 // VPSAppTemplate represents an application template.
