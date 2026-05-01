@@ -74,15 +74,15 @@ type OSInfo struct {
 
 // CreateBaremetalRequest represents a request to deploy a baremetal server.
 type CreateBaremetalRequest struct {
-	ModelName      string   `json:"model_name"`
-	LocationName   string   `json:"location_name"`
-	Hostname       string   `json:"hostname"`
-	Label          string   `json:"label,omitempty"`
-	User           string   `json:"user,omitempty"`
-	Password       string   `json:"password"`
-	SSHKeyNames    []string `json:"ssh_key_names,omitempty"`
-	OSName         string   `json:"os_name,omitempty"`
-	DiskLayoutName string   `json:"disk_layout_name,omitempty"`
+	ModelName      string `json:"model_name"`
+	LocationName   string `json:"location_name"`
+	Hostname       string `json:"hostname"`
+	Label          string `json:"label,omitempty"`
+	User           string `json:"user,omitempty"`
+	Password       string `json:"password"`
+	SSHKeyIDs      []int  `json:"ssh_key_ids,omitempty"`
+	OSName         string `json:"os_name,omitempty"`
+	DiskLayoutName string `json:"disk_layout_name,omitempty"`
 }
 
 // UpdateBaremetalRequest represents a request to update a baremetal server.
@@ -94,12 +94,12 @@ type UpdateBaremetalRequest struct {
 
 // ReinstallBaremetalRequest represents a request to reinstall a baremetal OS.
 type ReinstallBaremetalRequest struct {
-	OSName         string   `json:"os_name"`
-	DiskLayoutName string   `json:"disk_layout_name,omitempty"`
-	User           string   `json:"user,omitempty"`
-	Password       string   `json:"password"`
-	Hostname       string   `json:"hostname,omitempty"`
-	SSHKeyNames    []string `json:"ssh_key_names,omitempty"`
+	OSName         string `json:"os_name"`
+	DiskLayoutName string `json:"disk_layout_name,omitempty"`
+	User           string `json:"user,omitempty"`
+	Password       string `json:"password"`
+	Hostname       string `json:"hostname,omitempty"`
+	SSHKeyIDs      []int  `json:"ssh_key_ids,omitempty"`
 }
 
 // RescueResponse represents the response from activating rescue mode.

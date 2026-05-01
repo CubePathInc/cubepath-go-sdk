@@ -98,7 +98,7 @@ task, err := client.VPS.Create(ctx, projectID, &cubepath.CreateVPSRequest{
     PlanName:     "gp.nano",
     TemplateName: "debian-12",
     LocationName: "us-mia-1",
-    SSHKeyNames:  []string{"my-key"},
+    SSHKeyIDs:    []int{12},
 })
 
 // List all VPS instances (grouped by project)

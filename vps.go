@@ -107,7 +107,7 @@ type CreateVPSRequest struct {
 	LocationName          string   `json:"location_name"`
 	Label                 string   `json:"label,omitempty"`
 	NetworkID             *int     `json:"network_id,omitempty"`
-	SSHKeyNames           []string `json:"ssh_key_names,omitempty"`
+	SSHKeyIDs             []int    `json:"ssh_key_ids,omitempty"`
 	User                  string   `json:"user,omitempty"`
 	Password              string   `json:"password,omitempty"`
 	IPv4                  *bool    `json:"ipv4,omitempty"`
