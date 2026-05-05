@@ -111,6 +111,7 @@ type CreateVPSRequest struct {
 	User                  string   `json:"user,omitempty"`
 	Password              string   `json:"password,omitempty"`
 	IPv4                  *bool    `json:"ipv4,omitempty"`
+	IPv6                  *bool    `json:"ipv6,omitempty"`
 	EnableBackups         *bool    `json:"enable_backups,omitempty"`
 	CustomCloudInit       *string  `json:"custom_cloudinit,omitempty"`
 	FirewallGroupIDs      []int    `json:"firewall_group_ids,omitempty"`
