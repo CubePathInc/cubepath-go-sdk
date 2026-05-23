@@ -39,6 +39,10 @@ type CDNService interface {
 
 	// Metrics
 	GetMetrics(ctx context.Context, zoneUUID string, metricType string, params *CDNMetricsParams) (json.RawMessage, error)
+
+	// Actions
+	RequestSSL(ctx context.Context, zoneUUID string) error
+	MoveZoneToProject(ctx context.Context, zoneUUID string, projectID int) error
 }
 
 // CDNZone represents a CDN zone.
@@ -384,4 +388,21 @@ func (s *cdnService) GetMetrics(ctx context.Context, zoneUUID string, metricType
 		return nil, err
 	}
 	return json.RawMessage(data), nil
+}
+
+// Actions
+
+// RequestSSL re-triggers automatic SSL issuance for the zone's current
+// custom_domain. Use after fixing a missing/incorrect CNAME — the initial
+// PATCH zone flow only queues a cert task when custom_domain changes, so
+// this is the way to retry without resetting the field.
+func (s *cdnService) RequestSSL(ctx context.Context, zoneUUID string) error {
+	return s.client.post(ctx, fmt.Sprintf("/cdn/zones/%s/request-ssl", zoneUUID), nil, nil)
+}
+
+// MoveZoneToProject reassigns a CDN zone to a different project within
+// the same organization.
+func (s *cdnService) MoveZoneToProject(ctx context.Context, zoneUUID string, projectID int) error {
+	body := map[string]any{"project_id": projectID}
+	return s.client.post(ctx, fmt.Sprintf("/cdn/zones/%s/move-project", zoneUUID), body, nil)
 }
