@@ -171,6 +171,8 @@ type CreateKubernetesClusterRequest struct {
 	HAControlPlane bool                   `json:"ha_control_plane"`
 	NodePools      []CreateNodePoolConfig `json:"node_pools"`
 	Network        *ClusterNetworkConfig  `json:"network,omitempty"`
+	AllocateIPv4   *bool                  `json:"allocate_ipv4,omitempty"`
+	AllocateIPv6   *bool                  `json:"allocate_ipv6,omitempty"`
 }
 
 // CreateNodePoolConfig represents a node pool configuration for cluster creation.

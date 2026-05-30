@@ -118,6 +118,7 @@ type CreateLoadBalancerRequest struct {
 	LocationName string `json:"location_name"`
 	ProjectID    *int   `json:"project_id,omitempty"`
 	Label        string `json:"label,omitempty"`
+	NetworkID    *int   `json:"network_id,omitempty"`
 }
 
 // UpdateLoadBalancerRequest represents a request to update a load balancer.

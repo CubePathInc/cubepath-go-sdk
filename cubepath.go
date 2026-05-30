@@ -57,6 +57,7 @@ type Client struct {
 	Pricing      PricingService
 	DDoS         DDoSService
 	AIGateway    AIGatewayService
+	NATGateway   NATGatewayService
 }
 
 // ClientOption is a function that configures a Client.
@@ -163,6 +164,7 @@ func NewClient(apiToken string, opts ...ClientOption) (*Client, error) {
 	c.Pricing = &pricingService{client: c}
 	c.DDoS = &ddosService{client: c}
 	c.AIGateway = &aiGatewayService{client: c, baseURL: c.aiGatewayBaseURL}
+	c.NATGateway = &natGatewayService{client: c}
 
 	return c, nil
 }
