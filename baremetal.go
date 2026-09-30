@@ -19,6 +19,7 @@ type BaremetalService interface {
 	IPMISession(ctx context.Context, baremetalID int) (*IPMISession, error)
 	Reinstall(ctx context.Context, baremetalID int, req *ReinstallBaremetalRequest) error
 	ReinstallStatus(ctx context.Context, baremetalID int) (*ReinstallStatus, error)
+	CancelReinstall(ctx context.Context, baremetalID int) error
 	MonitoringEnable(ctx context.Context, baremetalID int) error
 	MonitoringDisable(ctx context.Context, baremetalID int) error
 }
@@ -111,10 +112,15 @@ type RescueResponse struct {
 
 // BMCSensors represents BMC sensor data.
 type BMCSensors struct {
-	Node          string `json:"node"`
-	IPMIAvailable bool   `json:"ipmi_available"`
-	PowerOn       bool   `json:"power_on"`
-	Sensors       struct {
+	// Deprecated: no longer returned by the API; always empty.
+	Node string `json:"node"`
+	// IPMIAvailable and PowerOn are false when the BMC has not been polled recently
+	// (see LastSeen).
+	IPMIAvailable bool `json:"ipmi_available"`
+	PowerOn       bool `json:"power_on"`
+	// LastSeen is the Unix time of the last BMC poll, 0 when never polled.
+	LastSeen int64 `json:"last_seen"`
+	Sensors  struct {
 		Temperatures []SensorReading `json:"temperatures"`
 		Fans         []SensorReading `json:"fans"`
 	} `json:"sensors"`
@@ -124,6 +130,8 @@ type BMCSensors struct {
 type SensorReading struct {
 	Name  string  `json:"name"`
 	Value float64 `json:"value"`
+	// Unit is CELSIUS for temperatures and RPM for fans.
+	Unit string `json:"unit"`
 }
 
 // IPMISession represents an IPMI proxy session.
@@ -139,7 +147,8 @@ type IPMISession struct {
 type ReinstallStatus struct {
 	IsReinstalling bool   `json:"is_reinstalling"`
 	Status         string `json:"status"`
-	OSName         string `json:"os_name"`
+	// Deprecated: no longer available; always empty.
+	OSName string `json:"os_name"`
 }
 
 type baremetalService struct {
@@ -197,12 +206,52 @@ func (s *baremetalService) ResetBMC(ctx context.Context, baremetalID int) error 
 	return s.client.post(ctx, fmt.Sprintf("/baremetal/%d/reset-bmc", baremetalID), nil, nil)
 }
 
+// BMCSensors returns the temperatures and fan speeds the BMC reported on its last poll.
+// Sensors are served through GraphQL; the old REST /bmc-sensors endpoint no longer exists.
 func (s *baremetalService) BMCSensors(ctx context.Context, baremetalID int) (*BMCSensors, error) {
-	var result BMCSensors
-	if err := s.client.get(ctx, fmt.Sprintf("/baremetal/%d/bmc-sensors", baremetalID), &result); err != nil {
+	type sensor struct {
+		Name  string  `json:"name"`
+		Value float64 `json:"value"`
+		Unit  string  `json:"unit"`
+	}
+	var data struct {
+		Baremetal *struct {
+			Sensors struct {
+				IPMIAvailable *bool    `json:"ipmiAvailable"`
+				PowerOn       *bool    `json:"powerOn"`
+				LastSeen      *int64   `json:"lastSeen"`
+				Temperatures  []sensor `json:"temperatures"`
+				Fans          []sensor `json:"fans"`
+			} `json:"sensors"`
+		} `json:"baremetal"`
+	}
+	query := `query($id: ID!) { baremetal(id: $id) { sensors { ipmiAvailable powerOn lastSeen temperatures { name value unit } fans { name value unit } } } }`
+	if err := s.client.graphQL(ctx, query, map[string]interface{}{"id": fmt.Sprint(baremetalID)}, &data); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	if data.Baremetal == nil {
+		return nil, &APIError{StatusCode: 404, Message: "Not Found", Detail: "Baremetal not found"}
+	}
+	in := data.Baremetal.Sensors
+	result := &BMCSensors{}
+	if in.IPMIAvailable != nil {
+		result.IPMIAvailable = *in.IPMIAvailable
+	}
+	if in.PowerOn != nil {
+		result.PowerOn = *in.PowerOn
+	}
+	if in.LastSeen != nil {
+		result.LastSeen = *in.LastSeen
+	}
+	result.Sensors.Temperatures = make([]SensorReading, 0, len(in.Temperatures))
+	for _, t := range in.Temperatures {
+		result.Sensors.Temperatures = append(result.Sensors.Temperatures, SensorReading(t))
+	}
+	result.Sensors.Fans = make([]SensorReading, 0, len(in.Fans))
+	for _, f := range in.Fans {
+		result.Sensors.Fans = append(result.Sensors.Fans, SensorReading(f))
+	}
+	return result, nil
 }
 
 func (s *baremetalService) IPMISession(ctx context.Context, baremetalID int) (*IPMISession, error) {
@@ -217,12 +266,19 @@ func (s *baremetalService) Reinstall(ctx context.Context, baremetalID int, req *
 	return s.client.post(ctx, fmt.Sprintf("/baremetal/%d/reinstall", baremetalID), req, nil)
 }
 
+// ReinstallStatus reports whether an OS reinstallation is running. The API no longer has a
+// dedicated status endpoint: a server is reinstalling while its status is "deploying".
 func (s *baremetalService) ReinstallStatus(ctx context.Context, baremetalID int) (*ReinstallStatus, error) {
-	var result ReinstallStatus
-	if err := s.client.get(ctx, fmt.Sprintf("/baremetal/%d/reinstall/status", baremetalID), &result); err != nil {
+	bm, err := s.Get(ctx, baremetalID)
+	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &ReinstallStatus{IsReinstalling: bm.Status == "deploying", Status: bm.Status}, nil
+}
+
+// CancelReinstall cancels a pending or running OS reinstallation.
+func (s *baremetalService) CancelReinstall(ctx context.Context, baremetalID int) error {
+	return s.client.del(ctx, fmt.Sprintf("/baremetal/%d/reinstall", baremetalID))
 }
 
 func (s *baremetalService) MonitoringEnable(ctx context.Context, baremetalID int) error {

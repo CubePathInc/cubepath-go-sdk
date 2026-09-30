@@ -172,12 +172,19 @@ func (s *loadBalancerService) List(ctx context.Context) ([]LoadBalancer, error) 
 	return lbs, nil
 }
 
+// Get returns one load balancer. The API has no single-item endpoint, so it is looked up in
+// the list (which carries listeners and targets).
 func (s *loadBalancerService) Get(ctx context.Context, lbUUID string) (*LoadBalancer, error) {
-	var lb LoadBalancer
-	if err := s.client.get(ctx, fmt.Sprintf("/loadbalancer/%s", lbUUID), &lb); err != nil {
+	lbs, err := s.List(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return &lb, nil
+	for i := range lbs {
+		if lbs[i].UUID == lbUUID {
+			return &lbs[i], nil
+		}
+	}
+	return nil, &APIError{StatusCode: 404, Message: "Not Found", Detail: fmt.Sprintf("load balancer %s not found", lbUUID)}
 }
 
 func (s *loadBalancerService) Create(ctx context.Context, req *CreateLoadBalancerRequest) (*LoadBalancer, error) {
