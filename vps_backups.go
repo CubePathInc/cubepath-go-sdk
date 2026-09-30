@@ -17,13 +17,17 @@ type VPSBackupService interface {
 
 // VPSBackup represents a VPS backup.
 type VPSBackup struct {
-	ID         int     `json:"id"`
-	BackupType string  `json:"backup_type"`
-	Status     string  `json:"status"`
-	Progress   int     `json:"progress"`
-	SizeGB     float64 `json:"size_gb"`
-	Notes      string  `json:"notes"`
-	CreatedAt  string  `json:"created_at"`
+	ID           int     `json:"id"`
+	VPSID        int     `json:"vps_id"`
+	BackupType   string  `json:"backup_type"`
+	Status       string  `json:"status"`
+	Progress     int     `json:"progress"`
+	SizeGB       float64 `json:"size_gb"`
+	Notes        string  `json:"notes"`
+	ErrorMessage *string `json:"error_message"`
+	StartedAt    *string `json:"started_at"`
+	CompletedAt  *string `json:"completed_at"`
+	CreatedAt    string  `json:"created_at"`
 }
 
 // VPSBackupSettings represents backup settings for a VPS.

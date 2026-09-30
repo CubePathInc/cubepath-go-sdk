@@ -2,7 +2,7 @@
 
 Official Go client library for the [CubePath](https://cubepath.com) cloud infrastructure API.
 
-CubePath is a cloud infrastructure provider offering virtual private servers (VPS), bare metal servers, managed Kubernetes, load balancers, CDN, S3 compatible object storage, DNS hosting, private networking, and DDoS protection across multiple datacenter locations.
+CubePath is a cloud infrastructure provider offering virtual private servers (VPS), bare metal servers, managed Kubernetes, managed databases, load balancers, CDN, S3 compatible object storage, video transcoding, DNS hosting, private networking, cloud alerts, and DDoS protection across multiple datacenter locations.
 
 ## Installation
 
@@ -115,6 +115,39 @@ err = client.VPS.Resize(ctx, 12345, "gp.pro")
 
 // Destroy
 err = client.VPS.Destroy(ctx, 12345, true) // true = release floating IPs
+
+// Plans per location (Status 2 = orderable, 1 = out of stock)
+plans, err := client.VPS.Plans(ctx)
+
+// Destruction protection and moving between projects
+err = client.VPS.SetProtection(ctx, 12345, true)
+err = client.VPS.MoveToProject(ctx, 12345, otherProjectID)
+
+// SSH keys (installed on the next reinstall) and private network
+err = client.VPS.AddSSHKeys(ctx, 12345, []int{12, 47})
+err = client.VPS.RemoveSSHKey(ctx, 12345, 47)
+err = client.VPS.AttachNetwork(ctx, 12345, networkID) // restart the VPS to apply
+err = client.VPS.DetachNetwork(ctx, 12345)
+
+// Console (noVNC): connect to WebSocketURL, the ticket is the VNC password
+session, err := client.VPS.VNCURL(ctx, 12345)
+```
+
+#### Availability Groups
+
+The VPS of a group are placed on different physical nodes.
+
+```go
+groups := client.VPS.AvailabilityGroups()
+group, err := groups.Create(ctx, &cubepath.CreateAvailabilityGroupRequest{
+    ProjectID:    projectID,
+    Name:         "web",
+    LocationName: "us-mia-1",
+})
+err = groups.AddVPS(ctx, group.UUID, vpsID)
+list, err := groups.ListByProject(ctx, projectID)
+err = groups.RemoveVPS(ctx, group.UUID, vpsID)
+err = groups.Delete(ctx, group.UUID) // the group must be empty
 ```
 
 #### VPS Backups
@@ -192,6 +225,21 @@ err = client.Baremetal.Reinstall(ctx, bmID, &cubepath.ReinstallBaremetalRequest{
     OSName:   "debian-12",
     Password: "new-password",
 })
+
+// Catalog: models with stock per location, and the systems a server can install
+models, err := client.Baremetal.ListModels(ctx)
+systems, err := client.Baremetal.ListOS(ctx, bmID)
+
+// KVM console access
+kvm, err := client.Baremetal.GetKVM(ctx, bmID)
+
+// Protection, projects, SSH keys and private network
+err = client.Baremetal.SetProtection(ctx, bmID, true)
+err = client.Baremetal.MoveToProject(ctx, bmID, otherProjectID)
+err = client.Baremetal.AddSSHKeys(ctx, bmID, []int{12})
+err = client.Baremetal.RemoveSSHKey(ctx, bmID, 12)
+err = client.Baremetal.AttachNetwork(ctx, bmID, networkID)
+err = client.Baremetal.DetachNetwork(ctx, bmID)
 ```
 
 ### Kubernetes
@@ -223,6 +271,13 @@ kubeconfig, err := client.Kubernetes.GetKubeconfig(ctx, "cluster-uuid")
 
 // Move cluster to another project
 err = client.Kubernetes.Move(ctx, "cluster-uuid", newProjectID)
+
+// Destruction protection
+err = client.Kubernetes.SetProtection(ctx, "cluster-uuid", true)
+
+// Metrics: [timestamp, value] series (time range "1h" to "30d")
+metrics, err := client.Kubernetes.GetMetrics(ctx, "cluster-uuid", "24h")
+nodeMetrics, err := client.Kubernetes.GetNodeMetrics(ctx, "cluster-uuid", "node-name", "1h")
 
 // Node pool management
 pool, err := client.Kubernetes.CreateNodePool(ctx, "cluster-uuid", &cubepath.CreateNodePoolRequest{
@@ -258,6 +313,18 @@ network, err := client.Networks.Create(ctx, &cubepath.CreateNetworkRequest{
     Prefix:       24,
     ProjectID:    1,
 })
+
+err = client.Networks.MoveToProject(ctx, network.ID, otherProjectID)
+
+// Dynamic Routes: eBGP sessions between the network gateway (ASN 64512) and a server of the
+// network. The network needs at least one attached server.
+peer, err := client.Networks.CreateBGPPeer(ctx, network.ID, &cubepath.CreateBGPPeerRequest{
+    PeerType:   cubepath.BGPPeerTypeVPS,
+    PeerTarget: "12345", // VPS id, or an IP of the network with PeerTypeIP
+    RemoteASN:  65010,
+})
+peers, err := client.Networks.ListBGPPeers(ctx, network.ID) // with session state and received prefixes
+err = client.Networks.DeleteBGPPeer(ctx, network.ID, peer.PeerID)
 ```
 
 #### Floating IPs
@@ -322,6 +389,28 @@ soa, err := client.DNS.GetSOA(ctx, zone.UUID)
 soa, err = client.DNS.UpdateSOA(ctx, zone.UUID, &cubepath.UpdateSOARequest{
     Refresh: intPtr(7200),
 })
+
+// Import a BIND zone file into a zone, or create a zone from one
+result, err := client.DNS.ImportZoneFile(ctx, zone.UUID, zoneFile)
+fmt.Println(result.Imported, result.Skipped, result.Errors)
+result, err = client.DNS.CreateZoneFromFile(ctx, "example.org", projectID, zoneFile)
+
+// Create a zone with the records found in public DNS
+result, err = client.DNS.CreateZoneFromScan(ctx, "example.net", projectID)
+
+// GeoDNS regions (Pro and Business plans) and moving a zone
+regions, err := client.DNS.ListRegions(ctx)
+err = client.DNS.MoveZoneToProject(ctx, zone.UUID, otherProjectID)
+
+// Health checks on A/AAAA records (Pro and Business plans): an unhealthy target is left out
+// of the answers until it recovers
+check, err := client.DNS.SetHealthCheck(ctx, zone.UUID, record.UUID, &cubepath.DNSHealthCheckRequest{
+    Name:      "web",
+    CheckType: cubepath.DNSHealthCheckHTTPS,
+    Path:      "/health",
+})
+checks, err := client.DNS.ListHealthChecks(ctx, zone.UUID)
+err = client.DNS.DeleteHealthCheck(ctx, zone.UUID, record.UUID)
 ```
 
 ### Load Balancers
@@ -363,6 +452,16 @@ err = client.LoadBalancer.ConfigureHealthCheck(ctx, lb.UUID, listener.UUID, &cub
 
 // Drain a target before removal
 err = client.LoadBalancer.DrainTarget(ctx, lb.UUID, listener.UUID, target.UUID)
+
+// Add up to 50 targets at once
+targets, err := client.LoadBalancer.AddTargets(ctx, lb.UUID, listener.UUID, []cubepath.AddTargetRequest{
+    {TargetType: "vps", TargetUUID: "123", Weight: 100},
+    {TargetType: "vps", TargetUUID: "124", Weight: 100},
+})
+
+// Protection and moving between projects
+err = client.LoadBalancer.SetProtection(ctx, lb.UUID, true)
+err = client.LoadBalancer.MoveToProject(ctx, lb.UUID, otherProjectID)
 ```
 
 ### CDN
@@ -406,13 +505,31 @@ waf, err := client.CDN.CreateWAFRule(ctx, zone.UUID, &cubepath.CreateCDNRuleRequ
     ActionConfig: json.RawMessage(`{"action": "block"}`),
 })
 
-// Query metrics
-metrics, err := client.CDN.GetMetrics(ctx, zone.UUID, "summary", &cubepath.CDNMetricsParams{
-    Minutes: 60,
+// Query metrics, optionally filtered
+metrics, err := client.CDN.GetMetrics(ctx, zone.UUID, cubepath.CDNMetricSummary, &cubepath.CDNMetricsParams{
+    Minutes:     60,
+    StatusRange: "5xx",
+    Country:     "ES,FR",
 })
+
+// Purge the cache: some paths (a trailing * purges a prefix) or everything
+purge, err := client.CDN.PurgeCache(ctx, zone.UUID, &cubepath.CDNPurgeRequest{
+    Paths: []string{"/assets/app.css", "/images/*"},
+})
+purges, err := client.CDN.ListPurges(ctx, zone.UUID) // progress per location
+
+// Token Auth: enable it (the secret is returned once), then sign URLs
+enabled := true
+updated, err := client.CDN.UpdateZone(ctx, zone.UUID, &cubepath.UpdateCDNZoneRequest{TokenAuthEnabled: &enabled})
+signed, err := client.CDN.SignURL(ctx, zone.UUID, &cubepath.CDNSignURLRequest{
+    Path:      "/videos/clip.mp4",
+    ExpiresIn: 3600,
+})
+fmt.Println(signed.SignedURL)
+secret, err := client.CDN.RotateTokenSecret(ctx, zone.UUID) // invalidates every signed URL
 ```
 
-Available metric types: `summary`, `requests`, `bandwidth`, `cache`, `status-codes`, `top-urls`, `top-countries`, `top-asn`, `top-user-agents`, `blocked`, `pops`, `file-extensions`.
+Available metric types (`CDNMetric*` constants): `summary`, `requests`, `bandwidth`, `cache`, `status-codes`, `top-urls`, `top-countries`, `top-asn`, `top-user-agents`, `blocked`, `pops`, `file-extensions`.
 
 ### Object Storage
 
@@ -462,6 +579,133 @@ origin, err := client.CDN.CreateOrigin(ctx, zone.UUID, &cubepath.CreateCDNOrigin
 
 Deleting that origin stops serving the bucket.
 
+### Managed Databases
+
+Managed MySQL, PostgreSQL and Valkey. Operations run in the background: poll `Get` until the
+status is `active` again (the API answers 409 while another operation is running).
+
+```go
+plans, err := client.ManagedDatabases.ListPlans(ctx, "postgresql") // per location, price per node
+
+created, err := client.ManagedDatabases.Create(ctx, &cubepath.CreateManagedDatabaseRequest{
+    ProjectID: projectID,
+    Name:      "app-db",
+    Engine:    "postgresql",
+    Version:   "17.5.0",
+    PlanUUID:  plans[0].Plans[0].UUID,
+    Replicas:  2,
+})
+db, err := client.ManagedDatabases.Get(ctx, created.UUID) // poll until Status == "active"
+
+creds, err := client.ManagedDatabases.GetCredentials(ctx, created.UUID)
+fmt.Println(creds.URI)
+
+// Logical databases and users (the user password is only returned here)
+_, err = client.ManagedDatabases.CreateDatabase(ctx, created.UUID, "app")
+user, err := client.ManagedDatabases.CreateUser(ctx, created.UUID, &cubepath.CreateManagedDatabaseUserRequest{Username: "app"})
+
+// Scaling, configuration and credential rotation
+replicas := 3
+_, err = client.ManagedDatabases.Scale(ctx, created.UUID, &cubepath.ScaleManagedDatabaseRequest{Replicas: &replicas})
+cfg, err := client.ManagedDatabases.GetConfig(ctx, created.UUID)
+_, err = client.ManagedDatabases.UpdateConfig(ctx, created.UUID, map[string]interface{}{"work_mem": 8192})
+err = client.ManagedDatabases.RotateCredentials(ctx, created.UUID)
+
+err = client.ManagedDatabases.Delete(ctx, created.UUID)
+```
+
+### DDoS Mitigation
+
+Protection profiles, country/ASN/prefix list filters and traffic capture apply to IPs with
+Premium protection; firewall rules on the scrubbing platform work on any IP of the organization.
+
+```go
+ips, err := client.DDoSMitigation.ListIPs(ctx, nil)
+
+// Firewall rules (a subnet creates one rule per IP)
+err = client.DDoSMitigation.CreateFirewallRule(ctx, &cubepath.CreateDDoSFirewallRuleRequest{
+    Network:  "203.0.113.10",
+    Protocol: cubepath.DDoSProtocolUDP,
+    DstPort:  27015,
+    Action:   cubepath.DDoSActionDrop,
+})
+rules, err := client.DDoSMitigation.ListFirewallRules(ctx, "203.0.113.10")
+err = client.DDoSMitigation.DeleteFirewallRule(ctx, rules[0].ID)
+
+// Protection profile: start from the current one and change what you need
+profile := cubepath.DefaultDDoSProtectionProfile()
+profile.CountryMode = 1 // block the listed countries
+err = client.DDoSMitigation.UpsertProfile(ctx, "203.0.113.10", profile)
+err = client.DDoSMitigation.SetProfileCountries(ctx, "203.0.113.10", []string{"BR"})
+
+// Prefix lists
+list, err := client.DDoSMitigation.CreatePrefixList(ctx, "partners", "")
+err = client.DDoSMitigation.AddPrefixListEntry(ctx, list.UUID, "198.51.100.0/24")
+
+// Sampled traffic and pass/drop statistics
+stats, err := client.DDoSMitigation.GetTrafficStats(ctx, &cubepath.DDoSTrafficStatsRequest{
+    StartTime: time.Now().Add(-time.Hour),
+    EndTime:   time.Now(),
+    Interval:  "5m",
+})
+```
+
+### Cloud Alerts
+
+Alerts watch a metric of a VPS, baremetal server or availability group and notify a channel
+(or create/destroy a VPS) when a threshold is crossed.
+
+```go
+channel, err := client.CloudAlerts.CreateNotificationChannel(ctx, &cubepath.CreateNotificationChannelRequest{
+    Name:   "ops",
+    Type:   cubepath.NotificationChannelSlack,
+    Config: map[string]interface{}{"webhook_url": "https://hooks.slack.com/services/..."},
+})
+
+alert, err := client.CloudAlerts.Create(ctx, &cubepath.CreateCloudAlertRequest{
+    ProjectID:  projectID,
+    Name:       "high cpu",
+    TargetType: cubepath.CloudAlertTargetVPS,
+    TargetID:   "12345",
+    MetricType: cubepath.CloudAlertMetricCPU,
+    Operator:   cubepath.CloudAlertOperatorGreaterThan,
+    Threshold:  90,
+    Actions: []cubepath.CloudAlertActionRequest{
+        {ActionType: cubepath.CloudAlertActionNotify, NotificationChannelID: channel.ID},
+    },
+})
+
+disabled := "disabled"
+_, err = client.CloudAlerts.Update(ctx, alert.ID, &cubepath.UpdateCloudAlertRequest{Status: &disabled})
+events, err := client.CloudAlerts.History(ctx, alert.ID, 50)
+```
+
+### Video Transcoder
+
+Jobs read a video from a URL or an S3 compatible bucket and write the outputs to your S3
+compatible bucket (for example a CubePath Object Storage bucket).
+
+```go
+job, err := client.Transcoder.CreateJob(ctx, &cubepath.CreateTranscodeJobRequest{
+    Input: cubepath.TranscodeInput{Source: "url", URL: "https://example.com/video.mp4"},
+    Output: cubepath.TranscodeDestination{S3: cubepath.TranscodeS3{
+        Endpoint:  key.Endpoint,
+        Region:    key.Region,
+        Bucket:    "videos",
+        Path:      "encoded/",
+        AccessKey: key.AccessKeyID,
+        SecretKey: key.SecretAccessKey,
+    }},
+    Outputs: []cubepath.TranscodeOutputSpec{
+        {Type: "file", Params: map[string]interface{}{"codec": "h264", "height": 720, "container": "mp4"}},
+        {Type: "hls"},
+    },
+})
+job, err = client.Transcoder.GetJob(ctx, job.UUID) // poll until completed, failed or canceled
+outputs, err := client.Transcoder.GetJobOutputs(ctx, job.UUID)
+page, err := client.Transcoder.ListJobs(ctx, &cubepath.TranscodeJobListOptions{Limit: 100})
+```
+
 ### Other Services
 
 #### Projects
@@ -472,6 +716,7 @@ project, err := client.Projects.Create(ctx, &cubepath.CreateProjectRequest{
     Description: "Production environment",
 })
 projects, err := client.Projects.List(ctx)
+err = client.Projects.Update(ctx, project.ID, "prod")
 ```
 
 #### SSH Keys
@@ -482,6 +727,7 @@ key, err := client.SSHKeys.Create(ctx, &cubepath.CreateSSHKeyRequest{
     SSHKey: "ssh-ed25519 AAAA...",
 })
 keys, err := client.SSHKeys.List(ctx)
+key, err = client.SSHKeys.Update(ctx, key.ID, "deploy-key-2") // rename
 ```
 
 #### Pricing
@@ -493,7 +739,9 @@ pricing, err := client.Pricing.Get(ctx)
 #### DDoS Attacks
 
 ```go
-attacks, err := client.DDoS.ListAttacks(ctx)
+attacks, err := client.DDoS.ListAttacks(ctx) // empty when there are none
+details, err := client.DDoS.GetAttackDetails(ctx, attacks[0].AttackID)
+graph, err := client.DDoS.GetAttackTrafficGraph(ctx, attacks[0].AttackID)
 ```
 
 ## Error Handling

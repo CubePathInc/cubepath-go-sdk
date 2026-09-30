@@ -3,6 +3,7 @@ package cubepath
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 )
 
@@ -15,6 +16,18 @@ type NetworkService interface {
 	ListRoutes(ctx context.Context, networkID int) ([]NetworkRoute, error)
 	CreateRoute(ctx context.Context, networkID int, req *CreateNetworkRouteRequest) (*NetworkRoute, error)
 	DeleteRoute(ctx context.Context, networkID int, routeID string) error
+	MoveToProject(ctx context.Context, networkID, projectID int) error
+
+	// BGP peers (Dynamic Routes): eBGP sessions between the network gateway (ASN 64512) and a
+	// BGP speaker inside the network.
+	ListBGPPeers(ctx context.Context, networkID int) ([]BGPPeer, error)
+	// CreateBGPPeer adds a peer. The network needs at least one attached server; at most 8
+	// peers per network.
+	CreateBGPPeer(ctx context.Context, networkID int, req *CreateBGPPeerRequest) (*BGPPeerCreated, error)
+	// UpdateBGPPeer changes the mutable fields of a peer; nil fields are left unchanged. To
+	// change the type, target or ASN, delete the peer and create it again.
+	UpdateBGPPeer(ctx context.Context, networkID int, peerID string, req *UpdateBGPPeerRequest) error
+	DeleteBGPPeer(ctx context.Context, networkID int, peerID string) error
 }
 
 // Network represents a private network.
@@ -67,6 +80,59 @@ type CreateNetworkRouteRequest struct {
 	Description   string `json:"description,omitempty"`
 }
 
+// BGP peer types.
+const (
+	BGPPeerTypeIP        = "ip"
+	BGPPeerTypeVPS       = "vps"
+	BGPPeerTypeBaremetal = "baremetal"
+)
+
+// BGPPeer represents a BGP session of a private network. LastState, PrefixesReceived,
+// LastStateAt and ReceivedPrefixes are observed by the platform and empty until then.
+type BGPPeer struct {
+	ID               string   `json:"id"`
+	NetworkID        int      `json:"network_id"`
+	PeerType         string   `json:"peer_type"`
+	PeerTarget       string   `json:"peer_target"`
+	RemoteASN        int64    `json:"remote_asn"`
+	MaxPrefix        int      `json:"max_prefix"`
+	Description      *string  `json:"description"`
+	Enabled          bool     `json:"enabled"`
+	CreatedAt        string   `json:"created_at"`
+	ResolvedPeerIP   *string  `json:"resolved_peer_ip"`
+	LastState        *string  `json:"last_state"`
+	PrefixesReceived *int     `json:"prefixes_received"`
+	LastStateAt      *string  `json:"last_state_at"`
+	ReceivedPrefixes []string `json:"received_prefixes"`
+}
+
+// CreateBGPPeerRequest represents a request to create a BGP peer. PeerType is "ip" (PeerTarget
+// is an IP inside the network) or "vps"/"baremetal" (PeerTarget is the server id). RemoteASN
+// must not be 64512. MaxPrefix defaults to 100 (1-1000).
+type CreateBGPPeerRequest struct {
+	PeerType    string `json:"peer_type"`
+	PeerTarget  string `json:"peer_target"`
+	RemoteASN   int64  `json:"remote_asn"`
+	MaxPrefix   int    `json:"max_prefix,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// BGPPeerCreated is the response of a BGP peer creation.
+type BGPPeerCreated struct {
+	Detail     string `json:"detail"`
+	PeerID     string `json:"peer_id"`
+	PeerType   string `json:"peer_type"`
+	PeerTarget string `json:"peer_target"`
+	RemoteASN  int64  `json:"remote_asn"`
+}
+
+// UpdateBGPPeerRequest represents a request to update a BGP peer.
+type UpdateBGPPeerRequest struct {
+	MaxPrefix   *int    `json:"max_prefix,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Enabled     *bool   `json:"enabled,omitempty"`
+}
+
 type networkService struct {
 	client *Client
 }
@@ -113,4 +179,35 @@ func (s *networkService) CreateRoute(ctx context.Context, networkID int, req *Cr
 
 func (s *networkService) DeleteRoute(ctx context.Context, networkID int, routeID string) error {
 	return s.client.del(ctx, fmt.Sprintf("/networks/%d/routes/%s", networkID, routeID))
+}
+
+func (s *networkService) MoveToProject(ctx context.Context, networkID, projectID int) error {
+	body := map[string]interface{}{
+		"project_id": projectID,
+	}
+	return s.client.post(ctx, fmt.Sprintf("/networks/%d/move-project", networkID), body, nil)
+}
+
+func (s *networkService) ListBGPPeers(ctx context.Context, networkID int) ([]BGPPeer, error) {
+	var peers []BGPPeer
+	if err := s.client.get(ctx, fmt.Sprintf("/networks/%d/bgp-peers", networkID), &peers); err != nil {
+		return nil, err
+	}
+	return peers, nil
+}
+
+func (s *networkService) CreateBGPPeer(ctx context.Context, networkID int, req *CreateBGPPeerRequest) (*BGPPeerCreated, error) {
+	var peer BGPPeerCreated
+	if err := s.client.post(ctx, fmt.Sprintf("/networks/%d/bgp-peers", networkID), req, &peer); err != nil {
+		return nil, err
+	}
+	return &peer, nil
+}
+
+func (s *networkService) UpdateBGPPeer(ctx context.Context, networkID int, peerID string, req *UpdateBGPPeerRequest) error {
+	return s.client.patch(ctx, fmt.Sprintf("/networks/%d/bgp-peers/%s", networkID, url.PathEscape(peerID)), req, nil)
+}
+
+func (s *networkService) DeleteBGPPeer(ctx context.Context, networkID int, peerID string) error {
+	return s.client.del(ctx, fmt.Sprintf("/networks/%d/bgp-peers/%s", networkID, url.PathEscape(peerID)))
 }

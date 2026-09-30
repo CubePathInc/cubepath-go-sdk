@@ -11,6 +11,8 @@ type ProjectService interface {
 	Create(ctx context.Context, req *CreateProjectRequest) (*Project, error)
 	List(ctx context.Context) ([]ProjectResponse, error)
 	Get(ctx context.Context, projectID int) (*ProjectResponse, error)
+	// Update renames a project (2-50 characters, unique in the organization).
+	Update(ctx context.Context, projectID int, name string) error
 	Delete(ctx context.Context, projectID int) error
 }
 
@@ -71,4 +73,11 @@ func (s *projectService) Get(ctx context.Context, projectID int) (*ProjectRespon
 
 func (s *projectService) Delete(ctx context.Context, projectID int) error {
 	return s.client.del(ctx, fmt.Sprintf("/projects/%d", projectID))
+}
+
+func (s *projectService) Update(ctx context.Context, projectID int, name string) error {
+	body := map[string]interface{}{
+		"name": name,
+	}
+	return s.client.put(ctx, fmt.Sprintf("/projects/%d", projectID), body, nil)
 }

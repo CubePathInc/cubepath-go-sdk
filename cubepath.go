@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"math/rand"
+	"mime/multipart"
 	"net/http"
 	"time"
 
@@ -19,7 +20,7 @@ const (
 	DefaultBaseURL = "https://api.cubepath.com"
 
 	// Version is the SDK version.
-	Version = "0.5.1"
+	Version = "0.6.0"
 
 	defaultUserAgent = "cubepath-sdk-go/" + Version
 )
@@ -59,6 +60,11 @@ type Client struct {
 	AIGateway     AIGatewayService
 	NATGateway    NATGatewayService
 	ObjectStorage ObjectStorageService
+
+	ManagedDatabases ManagedDatabaseService
+	DDoSMitigation   DDoSMitigationService
+	CloudAlerts      CloudAlertService
+	Transcoder       TranscoderService
 }
 
 // ClientOption is a function that configures a Client.
@@ -167,6 +173,10 @@ func NewClient(apiToken string, opts ...ClientOption) (*Client, error) {
 	c.AIGateway = &aiGatewayService{client: c, baseURL: c.aiGatewayBaseURL}
 	c.NATGateway = &natGatewayService{client: c}
 	c.ObjectStorage = &objectStorageService{client: c}
+	c.ManagedDatabases = &managedDatabaseService{client: c}
+	c.DDoSMitigation = &ddosMitigationService{client: c}
+	c.CloudAlerts = &cloudAlertService{client: c}
+	c.Transcoder = &transcoderService{client: c}
 
 	return c, nil
 }
@@ -176,11 +186,21 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body inter
 	return c.newRequestWithURL(ctx, method, c.baseURL+path, body)
 }
 
+// rawBody is a request body sent as is, with its own Content-Type (a multipart upload).
+type rawBody struct {
+	contentType string
+	data        []byte
+}
+
 // newRequestWithURL creates a new HTTP request with a full URL.
 func (c *Client) newRequestWithURL(ctx context.Context, method, url string, body interface{}) (*http.Request, error) {
 
+	contentType := "application/json"
 	var bodyReader io.Reader
-	if body != nil {
+	if raw, ok := body.(*rawBody); ok {
+		contentType = raw.contentType
+		bodyReader = bytes.NewReader(raw.data)
+	} else if body != nil {
 		jsonBody, err := json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request body: %w", err)
@@ -194,7 +214,7 @@ func (c *Client) newRequestWithURL(ctx context.Context, method, url string, body
 	}
 
 	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.userAgent)
 
@@ -341,6 +361,33 @@ func (c *Client) del(ctx context.Context, path string) error {
 		return parseAPIError(resp)
 	}
 	return nil
+}
+
+// delWithResult performs a DELETE request and decodes the response body.
+func (c *Client) delWithResult(ctx context.Context, path string, result interface{}) error {
+	resp, err := c.doRequest(ctx, http.MethodDelete, path, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return c.handleResponse(resp, result)
+}
+
+// postFile performs a multipart/form-data POST with one file part named field.
+func (c *Client) postFile(ctx context.Context, path, field, fileName string, content []byte, result interface{}) error {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreateFormFile(field, fileName)
+	if err != nil {
+		return err
+	}
+	if _, err := part.Write(content); err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return c.post(ctx, path, &rawBody{contentType: w.FormDataContentType(), data: buf.Bytes()}, result)
 }
 
 // getRaw performs a GET request and returns the raw response body.

@@ -22,6 +22,24 @@ type BaremetalService interface {
 	CancelReinstall(ctx context.Context, baremetalID int) error
 	MonitoringEnable(ctx context.Context, baremetalID int) error
 	MonitoringDisable(ctx context.Context, baremetalID int) error
+	// ListModels returns the server models for sale per location, with their stock.
+	ListModels(ctx context.Context) ([]BaremetalModelLocation, error)
+	// ListOS returns the operating systems a server can be reinstalled with, each with the
+	// disk layouts compatible with its hardware.
+	ListOS(ctx context.Context, baremetalID int) ([]BaremetalOS, error)
+	// GetKVM returns the KVM console access of a server (the access is audit logged).
+	GetKVM(ctx context.Context, baremetalID int) (*BaremetalKVM, error)
+	// SetProtection enables or disables destruction protection.
+	SetProtection(ctx context.Context, baremetalID int, enabled bool) error
+	MoveToProject(ctx context.Context, baremetalID, projectID int) error
+	// AddSSHKeys associates SSH keys with the server; they are installed on the next reinstall.
+	AddSSHKeys(ctx context.Context, baremetalID int, sshKeyIDs []int) error
+	RemoveSSHKey(ctx context.Context, baremetalID, sshKeyID int) error
+	// AttachNetwork attaches the server to a private network of the same location; restart
+	// it to apply the change.
+	AttachNetwork(ctx context.Context, baremetalID, networkID int) error
+	// DetachNetwork detaches the server from its private network; restart it to apply.
+	DetachNetwork(ctx context.Context, baremetalID int) error
 }
 
 // Baremetal represents a baremetal server.
@@ -39,6 +57,7 @@ type Baremetal struct {
 	MonitoringEnable bool           `json:"monitoring_enable"`
 	SSHUsername      string         `json:"ssh_username"`
 	SSHKey           *SSHKeyRef     `json:"ssh_key,omitempty"`
+	Protected        bool           `json:"protected"`
 	CreatedAt        time.Time      `json:"created_at"`
 }
 
@@ -149,6 +168,60 @@ type ReinstallStatus struct {
 	Status         string `json:"status"`
 	// Deprecated: no longer available; always empty.
 	OSName string `json:"os_name"`
+}
+
+// BaremetalModelLocation represents the models for sale at a location.
+type BaremetalModelLocation struct {
+	LocationName string                `json:"location_name"`
+	Description  string                `json:"description"`
+	Models       []BaremetalModelOffer `json:"models"`
+}
+
+// BaremetalModelOffer is a server model for sale. Price is the monthly price before the
+// discount (DiscountValue, of DiscountType "fixed" or "percent"); Port is in Gbps.
+type BaremetalModelOffer struct {
+	ModelName      string   `json:"model_name"`
+	Price          float64  `json:"price"`
+	DiscountValue  float64  `json:"discount_value"`
+	DiscountType   string   `json:"discount_type"`
+	CPU            string   `json:"cpu"`
+	CPUSpecs       string   `json:"cpu_specs"`
+	CPUBench       *float64 `json:"cpu_bench"`
+	RAMSize        int      `json:"ram_size"`
+	RAMType        string   `json:"ram_type"`
+	DiskSize       string   `json:"disk_size"`
+	DiskType       string   `json:"disk_type"`
+	Port           int      `json:"port"`
+	Setup          float64  `json:"setup"`
+	KVM            string   `json:"kvm"`
+	StockAvailable int      `json:"stock_available"`
+}
+
+// BaremetalDiskLayout is a disk layout usable when installing an operating system.
+type BaremetalDiskLayout struct {
+	ID             int    `json:"id"`
+	Name           string `json:"name"`
+	DiskLayoutName string `json:"disk_layout_name"`
+	DiskType       string `json:"disk_type"`
+	RAIDType       string `json:"raid_type"`
+	DiskCount      int    `json:"disk_count"`
+}
+
+// BaremetalOS is an operating system with its compatible disk layouts. OSName is the value to
+// pass as ReinstallBaremetalRequest.OSName.
+type BaremetalOS struct {
+	ID              int                   `json:"id"`
+	OSName          string                `json:"os_name"`
+	OperatingSystem string                `json:"operating_system"`
+	DiskLayouts     []BaremetalDiskLayout `json:"disk_layouts"`
+}
+
+// BaremetalKVM is the KVM console access of a server.
+type BaremetalKVM struct {
+	URL       string  `json:"url"`
+	Username  string  `json:"username"`
+	Password  *string `json:"password"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 type baremetalService struct {
@@ -287,4 +360,66 @@ func (s *baremetalService) MonitoringEnable(ctx context.Context, baremetalID int
 
 func (s *baremetalService) MonitoringDisable(ctx context.Context, baremetalID int) error {
 	return s.client.put(ctx, fmt.Sprintf("/baremetal/%d/monitoring?enable=false", baremetalID), nil, nil)
+}
+
+func (s *baremetalService) ListModels(ctx context.Context) ([]BaremetalModelLocation, error) {
+	var result struct {
+		Locations []BaremetalModelLocation `json:"locations"`
+	}
+	if err := s.client.get(ctx, "/baremetal/models", &result); err != nil {
+		return nil, err
+	}
+	return result.Locations, nil
+}
+
+func (s *baremetalService) ListOS(ctx context.Context, baremetalID int) ([]BaremetalOS, error) {
+	var systems []BaremetalOS
+	if err := s.client.get(ctx, fmt.Sprintf("/baremetal/os/%d", baremetalID), &systems); err != nil {
+		return nil, err
+	}
+	return systems, nil
+}
+
+func (s *baremetalService) GetKVM(ctx context.Context, baremetalID int) (*BaremetalKVM, error) {
+	var kvm BaremetalKVM
+	if err := s.client.get(ctx, fmt.Sprintf("/baremetal/%d/kvm", baremetalID), &kvm); err != nil {
+		return nil, err
+	}
+	return &kvm, nil
+}
+
+func (s *baremetalService) SetProtection(ctx context.Context, baremetalID int, enabled bool) error {
+	body := map[string]interface{}{
+		"enabled": enabled,
+	}
+	return s.client.post(ctx, fmt.Sprintf("/baremetal/%d/protection", baremetalID), body, nil)
+}
+
+func (s *baremetalService) MoveToProject(ctx context.Context, baremetalID, projectID int) error {
+	body := map[string]interface{}{
+		"project_id": projectID,
+	}
+	return s.client.post(ctx, fmt.Sprintf("/baremetal/%d/move-project", baremetalID), body, nil)
+}
+
+func (s *baremetalService) AddSSHKeys(ctx context.Context, baremetalID int, sshKeyIDs []int) error {
+	if len(sshKeyIDs) == 0 {
+		return fmt.Errorf("at least one SSH key id is required")
+	}
+	return s.client.post(ctx, fmt.Sprintf("/baremetal/%d/ssh-keys", baremetalID), sshKeyIDs, nil)
+}
+
+func (s *baremetalService) RemoveSSHKey(ctx context.Context, baremetalID, sshKeyID int) error {
+	return s.client.del(ctx, fmt.Sprintf("/baremetal/%d/ssh-keys/%d", baremetalID, sshKeyID))
+}
+
+func (s *baremetalService) AttachNetwork(ctx context.Context, baremetalID, networkID int) error {
+	body := map[string]interface{}{
+		"network_id": networkID,
+	}
+	return s.client.post(ctx, fmt.Sprintf("/baremetal/%d/network", baremetalID), body, nil)
+}
+
+func (s *baremetalService) DetachNetwork(ctx context.Context, baremetalID int) error {
+	return s.client.del(ctx, fmt.Sprintf("/baremetal/%d/network", baremetalID))
 }
