@@ -115,7 +115,7 @@ func TestBaremetalReinstallStatusFromServerStatus(t *testing.T) {
 
 func TestBaremetalCancelReinstall(t *testing.T) {
 	var rec recorded
-	c := newTestClient(t, 200, `{"detail":"Reinstallation cancelled"}`, &rec)
+	c := newTestClient(t, 200, `{"detail":"ok"}`, &rec)
 	if err := c.Baremetal.CancelReinstall(context.Background(), 9); err != nil {
 		t.Fatal(err)
 	}
