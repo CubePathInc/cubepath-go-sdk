@@ -18,6 +18,7 @@ type NATGatewayService interface {
 	MoveToProject(ctx context.Context, uuid string, projectID int) error
 	SetProtection(ctx context.Context, uuid string, enabled bool) error
 	GetMetrics(ctx context.Context, uuid string) (json.RawMessage, error)
+	GetMetricsRange(ctx context.Context, uuid string, timeRange string) (json.RawMessage, error)
 	GetBandwidthUsage(ctx context.Context, uuid string) (json.RawMessage, error)
 }
 
@@ -152,18 +153,44 @@ func (s *natGatewayService) SetProtection(ctx context.Context, uuid string, enab
 	return s.client.post(ctx, fmt.Sprintf("/nat-gateway/%s/protection", uuid), body, nil)
 }
 
+// GetMetrics returns the last hour of traffic of the gateway (series bytes_in and bytes_out,
+// in bytes per second) as the raw GraphQL MetricsResult: {"start","end","step","series":[...]}.
 func (s *natGatewayService) GetMetrics(ctx context.Context, uuid string) (json.RawMessage, error) {
-	var raw json.RawMessage
-	if err := s.client.get(ctx, fmt.Sprintf("/nat-gateway/%s/metrics", uuid), &raw); err != nil {
-		return nil, err
-	}
-	return raw, nil
+	return s.GetMetricsRange(ctx, uuid, "H1")
 }
 
-func (s *natGatewayService) GetBandwidthUsage(ctx context.Context, uuid string) (json.RawMessage, error) {
-	var raw json.RawMessage
-	if err := s.client.get(ctx, fmt.Sprintf("/nat-gateway/%s/bandwidth-usage", uuid), &raw); err != nil {
+// GetMetricsRange is GetMetrics over another window: H1, H3, H6, H12, H24, D3, D7 or D30.
+// NAT metrics are served through GraphQL; the old REST /metrics endpoint no longer exists.
+func (s *natGatewayService) GetMetricsRange(ctx context.Context, uuid string, timeRange string) (json.RawMessage, error) {
+	var data struct {
+		NatGateway *struct {
+			Metrics json.RawMessage `json:"metrics"`
+		} `json:"natGateway"`
+	}
+	query := `query($uuid: ID!, $range: TimeRange!) { natGateway(uuid: $uuid) { metrics(range: $range) { start end step series { name unit points { ts value } } } } }`
+	if err := s.client.graphQL(ctx, query, map[string]interface{}{"uuid": uuid, "range": timeRange}, &data); err != nil {
 		return nil, err
 	}
-	return raw, nil
+	if data.NatGateway == nil {
+		return nil, &APIError{StatusCode: 404, Message: "Not Found", Detail: "NAT gateway not found"}
+	}
+	return data.NatGateway.Metrics, nil
+}
+
+// GetBandwidthUsage returns the month-to-date traffic of the gateway as the raw GraphQL
+// BandwidthUsage: {"inBytes","outBytes","totalBytes","periodStart","periodEnd"}.
+func (s *natGatewayService) GetBandwidthUsage(ctx context.Context, uuid string) (json.RawMessage, error) {
+	var data struct {
+		NatGateway *struct {
+			BandwidthUsage json.RawMessage `json:"bandwidthUsage"`
+		} `json:"natGateway"`
+	}
+	query := `query($uuid: ID!) { natGateway(uuid: $uuid) { bandwidthUsage { inBytes outBytes totalBytes periodStart periodEnd } } }`
+	if err := s.client.graphQL(ctx, query, map[string]interface{}{"uuid": uuid}, &data); err != nil {
+		return nil, err
+	}
+	if data.NatGateway == nil {
+		return nil, &APIError{StatusCode: 404, Message: "Not Found", Detail: "NAT gateway not found"}
+	}
+	return data.NatGateway.BandwidthUsage, nil
 }

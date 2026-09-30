@@ -172,8 +172,12 @@ err = client.Baremetal.Power(ctx, bmID, "restart_metal")
 rescue, err := client.Baremetal.Rescue(ctx, bmID)
 fmt.Printf("Username: %s, Password: %s\n", rescue.Username, rescue.Password)
 
-// Read BMC sensors
+// Read BMC sensors (temperatures in CELSIUS, fans in RPM; LastSeen is the last BMC poll)
 sensors, err := client.Baremetal.BMCSensors(ctx, bmID)
+
+// Reinstall progress (the server status is "deploying" while it runs) and cancel
+status, err := client.Baremetal.ReinstallStatus(ctx, bmID)
+err = client.Baremetal.CancelReinstall(ctx, bmID)
 
 // Create IPMI proxy session
 session, err := client.Baremetal.IPMISession(ctx, bmID)
@@ -276,12 +280,18 @@ err = client.FloatingIPs.Release(ctx, "203.0.113.10")
 
 ```go
 group, err := client.Firewall.Create(ctx, &cubepath.CreateFirewallGroupRequest{
+    ProjectID: projectID,
     Name:    "web-servers",
     Enabled: true,
     Rules: []cubepath.FirewallRule{
         {Direction: "in", Protocol: "tcp", Port: strPtr("80")},
         {Direction: "in", Protocol: "tcp", Port: strPtr("443")},
     },
+})
+
+// Replace the groups of a VPS (at most 10, in priority order; an empty list removes them)
+res, err := client.Firewall.AssignToVPS(ctx, vpsID, &cubepath.VPSFirewallGroupsRequest{
+    FirewallGroupIDs: []int{group.ID},
 })
 ```
 
