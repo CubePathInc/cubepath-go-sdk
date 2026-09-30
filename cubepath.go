@@ -19,7 +19,7 @@ const (
 	DefaultBaseURL = "https://api.cubepath.com"
 
 	// Version is the SDK version.
-	Version = "0.4.0"
+	Version = "0.5.0"
 
 	defaultUserAgent = "cubepath-sdk-go/" + Version
 )
@@ -43,21 +43,22 @@ type Client struct {
 	aiGatewayBaseURL string
 
 	// Services
-	Projects     ProjectService
-	SSHKeys      SSHKeyService
-	VPS          VPSService
-	Baremetal    BaremetalService
-	Networks     NetworkService
-	FloatingIPs  FloatingIPService
-	Firewall     FirewallService
-	DNS          DNSService
-	LoadBalancer LoadBalancerService
-	CDN          CDNService
-	Kubernetes   KubernetesService
-	Pricing      PricingService
-	DDoS         DDoSService
-	AIGateway    AIGatewayService
-	NATGateway   NATGatewayService
+	Projects      ProjectService
+	SSHKeys       SSHKeyService
+	VPS           VPSService
+	Baremetal     BaremetalService
+	Networks      NetworkService
+	FloatingIPs   FloatingIPService
+	Firewall      FirewallService
+	DNS           DNSService
+	LoadBalancer  LoadBalancerService
+	CDN           CDNService
+	Kubernetes    KubernetesService
+	Pricing       PricingService
+	DDoS          DDoSService
+	AIGateway     AIGatewayService
+	NATGateway    NATGatewayService
+	ObjectStorage ObjectStorageService
 }
 
 // ClientOption is a function that configures a Client.
@@ -165,6 +166,7 @@ func NewClient(apiToken string, opts ...ClientOption) (*Client, error) {
 	c.DDoS = &ddosService{client: c}
 	c.AIGateway = &aiGatewayService{client: c, baseURL: c.aiGatewayBaseURL}
 	c.NATGateway = &natGatewayService{client: c}
+	c.ObjectStorage = &objectStorageService{client: c}
 
 	return c, nil
 }

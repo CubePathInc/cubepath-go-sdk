@@ -2,7 +2,7 @@
 
 Official Go client library for the [CubePath](https://cubepath.com) cloud infrastructure API.
 
-CubePath is a cloud infrastructure provider offering virtual private servers (VPS), bare metal servers, managed Kubernetes, load balancers, CDN, DNS hosting, private networking, and DDoS protection across multiple datacenter locations.
+CubePath is a cloud infrastructure provider offering virtual private servers (VPS), bare metal servers, managed Kubernetes, load balancers, CDN, S3 compatible object storage, DNS hosting, private networking, and DDoS protection across multiple datacenter locations.
 
 ## Installation
 
@@ -403,6 +403,54 @@ metrics, err := client.CDN.GetMetrics(ctx, zone.UUID, "summary", &cubepath.CDNMe
 ```
 
 Available metric types: `summary`, `requests`, `bandwidth`, `cache`, `status-codes`, `top-urls`, `top-countries`, `top-asn`, `top-user-agents`, `blocked`, `pops`, `file-extensions`.
+
+### Object Storage
+
+S3 compatible buckets. Buckets and access keys are created asynchronously: they start as
+`pending` and are `active` a few seconds later.
+
+```go
+// Tiers, with endpoint, prices and free tier
+tiers, err := client.ObjectStorage.ListTiers(ctx)
+
+// Create a bucket
+bucket, err := client.ObjectStorage.CreateBucket(ctx, &cubepath.CreateObjectStorageBucketRequest{
+    Name: "my-backups",
+    Tier: "infrequent_access",
+})
+detail, err := client.ObjectStorage.GetBucket(ctx, bucket.UUID) // poll until Status == "active"
+
+// Create an access key for S3 clients (the secret is only returned here)
+key, err := client.ObjectStorage.CreateKey(ctx, &cubepath.CreateObjectStorageKeyRequest{
+    Name:        "backup-job",
+    Tier:        "infrequent_access",
+    Permission:  "read_write", // or "read_only"
+    BucketUUIDs: []string{bucket.UUID}, // omit for every bucket of the project
+})
+fmt.Println(key.AccessKeyID, key.SecretAccessKey, key.Endpoint, key.Region)
+
+// Versioning and deletion protection
+enabled := "enabled"
+err = client.ObjectStorage.UpdateBucket(ctx, bucket.UUID, &cubepath.UpdateObjectStorageBucketRequest{Versioning: &enabled})
+
+// Month usage and cost
+usage, err := client.ObjectStorage.GetUsage(ctx, &cubepath.ObjectStorageUsageOptions{Period: "2026-09"})
+
+// Delete (force purges the bucket content first)
+err = client.ObjectStorage.DeleteKey(ctx, key.UUID)
+err = client.ObjectStorage.DeleteBucket(ctx, bucket.UUID, true)
+```
+
+Serve a bucket publicly through the CDN by adding it as an origin of a CDN zone:
+
+```go
+origin, err := client.CDN.CreateOrigin(ctx, zone.UUID, &cubepath.CreateCDNOriginRequest{
+    Name:                    "assets",
+    ObjectStorageBucketUUID: bucket.UUID,
+})
+```
+
+Deleting that origin stops serving the bucket.
 
 ### Other Services
 
