@@ -19,8 +19,28 @@ type VPSService interface {
 	Reinstall(ctx context.Context, vpsID int, templateName string) error
 	Power(ctx context.Context, vpsID int, action string) error
 	Templates(ctx context.Context) (*VPSTemplatesResponse, error)
+	// Plans returns the orderable plans per location and cluster.
+	Plans(ctx context.Context) (*VPSPlansResponse, error)
+	// SetProtection enables or disables destruction protection: a protected VPS cannot be
+	// destroyed or reinstalled.
+	SetProtection(ctx context.Context, vpsID int, enabled bool) error
+	MoveToProject(ctx context.Context, vpsID, projectID int) error
+	// AddSSHKeys associates SSH keys with the VPS. Keys are only installed on the next
+	// reinstall; the running system is not changed.
+	AddSSHKeys(ctx context.Context, vpsID int, sshKeyIDs []int) error
+	// RemoveSSHKey removes the association of an SSH key. The running system is not changed.
+	RemoveSSHKey(ctx context.Context, vpsID, sshKeyID int) error
+	// AttachNetwork attaches the VPS to a private network of the same location. The IP is
+	// assigned automatically; restart the VPS to apply the change.
+	AttachNetwork(ctx context.Context, vpsID, networkID int) error
+	// DetachNetwork detaches the VPS from its private network; restart it to apply the change.
+	DetachNetwork(ctx context.Context, vpsID int) error
+	// VNCURL opens a console session (valid 5 minutes) on a running VPS. Connect a noVNC
+	// client to WebSocketURL and use Ticket as the VNC password.
+	VNCURL(ctx context.Context, vpsID int) (*VNCSession, error)
 	Backups() VPSBackupService
 	ISOs() VPSISOService
+	AvailabilityGroups() VPSAvailabilityGroupService
 }
 
 // VPS represents a VPS instance.
@@ -39,6 +59,7 @@ type VPS struct {
 	IPv6        string          `json:"ipv6"`
 	Network     *NetworkInfo    `json:"network,omitempty"`
 	SSHKeys     []SSHKey        `json:"ssh_keys"`
+	Protected   bool            `json:"protected"`
 	CreatedAt   time.Time       `json:"created_at"`
 }
 
@@ -51,6 +72,36 @@ type VPSPlan struct {
 	Storage      int    `json:"storage"`
 	Bandwidth    int    `json:"bandwidth"`
 	PricePerHour string `json:"price_per_hour"`
+	// Status is only set by Plans: 2 orderable, 1 out of stock.
+	Status int `json:"status,omitempty"`
+}
+
+// VPSPlansResponse represents the plans available per location.
+type VPSPlansResponse struct {
+	Locations []VPSPlanLocation `json:"locations"`
+}
+
+// VPSPlanLocation represents the plans of one location, grouped by cluster.
+type VPSPlanLocation struct {
+	LocationName string           `json:"location_name"`
+	Description  string           `json:"description"`
+	Clusters     []VPSPlanCluster `json:"clusters"`
+}
+
+// VPSPlanCluster represents a group of plans (for example "General Purpose").
+type VPSPlanCluster struct {
+	ClusterName string    `json:"cluster_name"`
+	Type        string    `json:"type"`
+	Plans       []VPSPlan `json:"plans"`
+}
+
+// VNCSession is a console session of a VPS.
+type VNCSession struct {
+	WebSocketURL string `json:"websocket_url"`
+	SessionID    string `json:"session_id"`
+	VNCInfo      struct {
+		Ticket string `json:"ticket"`
+	} `json:"vnc_info"`
 }
 
 // VPSTemplate represents a VPS template/operating system.
@@ -99,13 +150,14 @@ type TaskResponse struct {
 	Detail  string `json:"detail,omitempty"`
 }
 
-// CreateVPSRequest represents a request to create a VPS.
+// CreateVPSRequest represents a request to create a VPS. Label is always sent (the API
+// requires the field; it may be empty).
 type CreateVPSRequest struct {
 	Name                  string  `json:"name"`
 	PlanName              string  `json:"plan_name"`
 	TemplateName          string  `json:"template_name"`
 	LocationName          string  `json:"location_name"`
-	Label                 string  `json:"label,omitempty"`
+	Label                 string  `json:"label"`
 	NetworkID             *int    `json:"network_id,omitempty"`
 	SSHKeyIDs             []int   `json:"ssh_key_ids,omitempty"`
 	User                  string  `json:"user,omitempty"`
@@ -128,6 +180,7 @@ type vpsService struct {
 	client  *Client
 	backups *vpsBackupService
 	isos    *vpsISOService
+	groups  *vpsAvailabilityGroupService
 }
 
 func (s *vpsService) Create(ctx context.Context, projectID int, req *CreateVPSRequest) (*TaskResponse, error) {
@@ -214,4 +267,63 @@ func (s *vpsService) ISOs() VPSISOService {
 		s.isos = &vpsISOService{client: s.client}
 	}
 	return s.isos
+}
+
+func (s *vpsService) Plans(ctx context.Context) (*VPSPlansResponse, error) {
+	var plans VPSPlansResponse
+	if err := s.client.get(ctx, "/vps/plans", &plans); err != nil {
+		return nil, err
+	}
+	return &plans, nil
+}
+
+func (s *vpsService) SetProtection(ctx context.Context, vpsID int, enabled bool) error {
+	body := map[string]interface{}{
+		"enabled": enabled,
+	}
+	return s.client.post(ctx, fmt.Sprintf("/vps/%d/protection", vpsID), body, nil)
+}
+
+func (s *vpsService) MoveToProject(ctx context.Context, vpsID, projectID int) error {
+	body := map[string]interface{}{
+		"project_id": projectID,
+	}
+	return s.client.post(ctx, fmt.Sprintf("/vps/%d/move-project", vpsID), body, nil)
+}
+
+func (s *vpsService) AddSSHKeys(ctx context.Context, vpsID int, sshKeyIDs []int) error {
+	if len(sshKeyIDs) == 0 {
+		return fmt.Errorf("at least one SSH key id is required")
+	}
+	return s.client.post(ctx, fmt.Sprintf("/vps/%d/ssh-keys", vpsID), sshKeyIDs, nil)
+}
+
+func (s *vpsService) RemoveSSHKey(ctx context.Context, vpsID, sshKeyID int) error {
+	return s.client.del(ctx, fmt.Sprintf("/vps/%d/ssh-keys/%d", vpsID, sshKeyID))
+}
+
+func (s *vpsService) AttachNetwork(ctx context.Context, vpsID, networkID int) error {
+	body := map[string]interface{}{
+		"network_id": networkID,
+	}
+	return s.client.post(ctx, fmt.Sprintf("/vps/%d/network", vpsID), body, nil)
+}
+
+func (s *vpsService) DetachNetwork(ctx context.Context, vpsID int) error {
+	return s.client.del(ctx, fmt.Sprintf("/vps/%d/network", vpsID))
+}
+
+func (s *vpsService) VNCURL(ctx context.Context, vpsID int) (*VNCSession, error) {
+	var session VNCSession
+	if err := s.client.post(ctx, fmt.Sprintf("/vps/%d/vnc-url", vpsID), nil, &session); err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (s *vpsService) AvailabilityGroups() VPSAvailabilityGroupService {
+	if s.groups == nil {
+		s.groups = &vpsAvailabilityGroupService{client: s.client}
+	}
+	return s.groups
 }

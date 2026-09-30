@@ -9,6 +9,8 @@ import (
 type SSHKeyService interface {
 	Create(ctx context.Context, req *CreateSSHKeyRequest) (*SSHKey, error)
 	List(ctx context.Context) ([]SSHKey, error)
+	// Update renames an SSH key; the key itself cannot be changed.
+	Update(ctx context.Context, keyID int, name string) (*SSHKey, error)
 	Delete(ctx context.Context, keyID int) error
 }
 
@@ -52,4 +54,17 @@ func (s *sshKeyService) List(ctx context.Context) ([]SSHKey, error) {
 
 func (s *sshKeyService) Delete(ctx context.Context, keyID int) error {
 	return s.client.del(ctx, fmt.Sprintf("/sshkey/%d", keyID))
+}
+
+func (s *sshKeyService) Update(ctx context.Context, keyID int, name string) (*SSHKey, error) {
+	body := map[string]interface{}{
+		"name": name,
+	}
+	var result struct {
+		SSHKey SSHKey `json:"sshkey"`
+	}
+	if err := s.client.put(ctx, fmt.Sprintf("/sshkey/%d", keyID), body, &result); err != nil {
+		return nil, err
+	}
+	return &result.SSHKey, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 )
 
 // KubernetesService handles communication with the Kubernetes related methods of the CubePath API.
@@ -19,6 +20,13 @@ type KubernetesService interface {
 	GetKubeconfig(ctx context.Context, clusterUUID string) (string, error)
 	Move(ctx context.Context, clusterUUID string, projectID int) error
 	ListLoadBalancers(ctx context.Context, clusterUUID string) ([]KubernetesLB, error)
+	// SetProtection enables or disables destruction protection.
+	SetProtection(ctx context.Context, clusterUUID string, enabled bool) error
+	// GetMetrics returns cluster series (nodes_ready, nodes_total, pods_pending, pods_failed,
+	// api_latency_ms). TimeRange is "1h" (default), "3h", "6h", "12h", "24h", "3d", "7d" or "30d".
+	GetMetrics(ctx context.Context, clusterUUID, timeRange string) (*KubernetesMetrics, error)
+	// GetNodeMetrics returns the series of one node (by Kubernetes node name).
+	GetNodeMetrics(ctx context.Context, clusterUUID, nodeName, timeRange string) (*KubernetesMetrics, error)
 
 	// Node Pools
 	ListNodePools(ctx context.Context, clusterUUID string) ([]NodePool, error)
@@ -71,6 +79,7 @@ type KubernetesCluster struct {
 	NodePools      []NodePool         `json:"node_pools"`
 	WorkerCount    int                `json:"worker_count"`
 	NodePoolCount  int                `json:"node_pool_count"`
+	Protected      bool               `json:"protected"`
 	CreatedAt      string             `json:"created_at"`
 }
 
@@ -227,6 +236,15 @@ type UpdateNodePoolRequest struct {
 // InstallAddonRequest represents a request to install an addon.
 type InstallAddonRequest struct {
 	CustomValues map[string]interface{} `json:"custom_values,omitempty"`
+}
+
+// KubernetesMetrics are time series keyed by metric name; each point is
+// [unix_timestamp, value].
+type KubernetesMetrics struct {
+	Start   int64                   `json:"start"`
+	End     int64                   `json:"end"`
+	Step    int                     `json:"step"`
+	Metrics map[string][][2]float64 `json:"metrics"`
 }
 
 type kubernetesService struct {
@@ -393,4 +411,35 @@ func (s *kubernetesService) InstallAddon(ctx context.Context, clusterUUID, slug 
 
 func (s *kubernetesService) UninstallAddon(ctx context.Context, clusterUUID, addonUUID string) error {
 	return s.client.del(ctx, fmt.Sprintf("/kubernetes/%s/addons/%s", clusterUUID, addonUUID))
+}
+
+func (s *kubernetesService) SetProtection(ctx context.Context, clusterUUID string, enabled bool) error {
+	body := map[string]interface{}{
+		"enabled": enabled,
+	}
+	return s.client.post(ctx, fmt.Sprintf("/kubernetes/%s/protection", clusterUUID), body, nil)
+}
+
+func (s *kubernetesService) GetMetrics(ctx context.Context, clusterUUID, timeRange string) (*KubernetesMetrics, error) {
+	path := fmt.Sprintf("/kubernetes/%s/metrics", clusterUUID)
+	if timeRange != "" {
+		path += "?time_range=" + url.QueryEscape(timeRange)
+	}
+	var metrics KubernetesMetrics
+	if err := s.client.get(ctx, path, &metrics); err != nil {
+		return nil, err
+	}
+	return &metrics, nil
+}
+
+func (s *kubernetesService) GetNodeMetrics(ctx context.Context, clusterUUID, nodeName, timeRange string) (*KubernetesMetrics, error) {
+	path := fmt.Sprintf("/kubernetes/%s/nodes/%s/metrics", clusterUUID, url.PathEscape(nodeName))
+	if timeRange != "" {
+		path += "?time_range=" + url.QueryEscape(timeRange)
+	}
+	var metrics KubernetesMetrics
+	if err := s.client.get(ctx, path, &metrics); err != nil {
+		return nil, err
+	}
+	return &metrics, nil
 }

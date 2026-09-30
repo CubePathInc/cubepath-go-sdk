@@ -14,10 +14,12 @@ type VPSISOService interface {
 
 // ISO represents an ISO image.
 type ISO struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	FileSize  int    `json:"file_size"`
-	IsMounted bool   `json:"is_mounted"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Filename    string `json:"filename"`
+	Description string `json:"description"`
+	FileSize    int    `json:"file_size"`
+	IsMounted   bool   `json:"is_mounted"`
 }
 
 // ISOListResponse represents the response from listing ISOs.

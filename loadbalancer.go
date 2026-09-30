@@ -16,6 +16,9 @@ type LoadBalancerService interface {
 	Delete(ctx context.Context, lbUUID string) error
 	Resize(ctx context.Context, lbUUID, planName string) error
 	ListPlans(ctx context.Context) ([]LBLocationPlans, error)
+	// SetProtection enables or disables destruction protection.
+	SetProtection(ctx context.Context, lbUUID string, enabled bool) error
+	MoveToProject(ctx context.Context, lbUUID string, projectID int) error
 
 	// Listeners
 	CreateListener(ctx context.Context, lbUUID string, req *CreateListenerRequest) (*LBListener, error)
@@ -24,6 +27,8 @@ type LoadBalancerService interface {
 
 	// Targets
 	AddTarget(ctx context.Context, lbUUID, listenerUUID string, req *AddTargetRequest) (*LBTarget, error)
+	// AddTargets adds 1-50 targets to a listener in one request.
+	AddTargets(ctx context.Context, lbUUID, listenerUUID string, targets []AddTargetRequest) ([]LBTarget, error)
 	UpdateTarget(ctx context.Context, lbUUID, listenerUUID, targetUUID string, req *UpdateTargetRequest) (*LBTarget, error)
 	RemoveTarget(ctx context.Context, lbUUID, listenerUUID, targetUUID string) error
 	DrainTarget(ctx context.Context, lbUUID, listenerUUID, targetUUID string) error
@@ -46,6 +51,7 @@ type LoadBalancer struct {
 	Listeners      []LBListener   `json:"listeners"`
 	ListenersCount int            `json:"listeners_count"`
 	ProjectID      int            `json:"project_id"`
+	Protected      bool           `json:"protected"`
 	CreatedAt      string         `json:"created_at"`
 }
 
@@ -272,4 +278,31 @@ func (s *loadBalancerService) ConfigureHealthCheck(ctx context.Context, lbUUID, 
 
 func (s *loadBalancerService) DeleteHealthCheck(ctx context.Context, lbUUID, listenerUUID string) error {
 	return s.client.del(ctx, fmt.Sprintf("/loadbalancer/%s/listeners/%s/health-check", lbUUID, listenerUUID))
+}
+
+func (s *loadBalancerService) SetProtection(ctx context.Context, lbUUID string, enabled bool) error {
+	body := map[string]interface{}{
+		"enabled": enabled,
+	}
+	return s.client.post(ctx, fmt.Sprintf("/loadbalancer/%s/protection", lbUUID), body, nil)
+}
+
+func (s *loadBalancerService) MoveToProject(ctx context.Context, lbUUID string, projectID int) error {
+	body := map[string]interface{}{
+		"project_id": projectID,
+	}
+	return s.client.post(ctx, fmt.Sprintf("/loadbalancer/%s/move-project", lbUUID), body, nil)
+}
+
+func (s *loadBalancerService) AddTargets(ctx context.Context, lbUUID, listenerUUID string, targets []AddTargetRequest) ([]LBTarget, error) {
+	body := map[string]interface{}{
+		"targets": targets,
+	}
+	var result struct {
+		Targets []LBTarget `json:"targets"`
+	}
+	if err := s.client.post(ctx, fmt.Sprintf("/loadbalancer/%s/listeners/%s/targets/batch", lbUUID, listenerUUID), body, &result); err != nil {
+		return nil, err
+	}
+	return result.Targets, nil
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"strconv"
 )
 
 // CDNService handles communication with the CDN related methods of the CubePath API.
@@ -38,12 +40,45 @@ type CDNService interface {
 	DeleteWAFRule(ctx context.Context, zoneUUID, ruleUUID string) error
 
 	// Metrics
+	// GetMetrics returns one analytics report of the zone as raw JSON. metricType is one of
+	// the CDNMetric constants.
 	GetMetrics(ctx context.Context, zoneUUID string, metricType string, params *CDNMetricsParams) (json.RawMessage, error)
 
 	// Actions
 	RequestSSL(ctx context.Context, zoneUUID string) error
 	MoveZoneToProject(ctx context.Context, zoneUUID string, projectID int) error
+
+	// Cache purge
+	// PurgeCache queues a purge on every edge location. Set Everything, or list up to 100
+	// Paths (a path ending in * purges the prefix). An identical purge that has not started yet
+	// is reused.
+	PurgeCache(ctx context.Context, zoneUUID string, req *CDNPurgeRequest) (*CDNPurge, error)
+	// ListPurges returns the latest 20 purges of the zone with their progress per location.
+	ListPurges(ctx context.Context, zoneUUID string) ([]CDNPurgeStatus, error)
+
+	// Token Auth
+	// RotateTokenSecret generates a new Token Auth secret (and enables Token Auth). Every URL
+	// signed with the old secret stops working.
+	RotateTokenSecret(ctx context.Context, zoneUUID string) (string, error)
+	// SignURL returns a signed URL for a zone with Token Auth enabled.
+	SignURL(ctx context.Context, zoneUUID string, req *CDNSignURLRequest) (*CDNSignedURL, error)
 }
+
+// CDN analytics reports, for GetMetrics.
+const (
+	CDNMetricSummary        = "summary"
+	CDNMetricRequests       = "requests"
+	CDNMetricBandwidth      = "bandwidth"
+	CDNMetricCache          = "cache"
+	CDNMetricStatusCodes    = "status-codes"
+	CDNMetricTopURLs        = "top-urls"
+	CDNMetricTopCountries   = "top-countries"
+	CDNMetricTopASN         = "top-asn"
+	CDNMetricTopUserAgents  = "top-user-agents"
+	CDNMetricBlocked        = "blocked"
+	CDNMetricPOPs           = "pops"
+	CDNMetricFileExtensions = "file-extensions"
+)
 
 // CDNZone represents a CDN zone.
 type CDNZone struct {
@@ -57,8 +92,15 @@ type CDNZone struct {
 	ProjectID    int         `json:"project_id"`
 	Origins      []CDNOrigin `json:"origins"`
 	Rules        []CDNRule   `json:"rules"`
-	CreatedAt    string      `json:"created_at"`
-	UpdatedAt    string      `json:"updated_at"`
+	// TokenAuthSecret is only returned to callers that can change the zone, and by
+	// UpdateZone when Token Auth is enabled for the first time.
+	TokenAuthEnabled   bool    `json:"token_auth_enabled"`
+	TokenAuthIPBinding bool    `json:"token_auth_ip_binding"`
+	TokenAuthSecret    *string `json:"token_auth_secret,omitempty"`
+	CORSEnabled        bool    `json:"cors_enabled"`
+	CORSAllowOrigins   *string `json:"cors_allow_origins,omitempty"`
+	CreatedAt          string  `json:"created_at"`
+	UpdatedAt          string  `json:"updated_at"`
 }
 
 // CDNOrigin represents a CDN origin server.
@@ -111,12 +153,82 @@ type CDNPlan struct {
 	CustomSSLAllowed  bool            `json:"custom_ssl_allowed"`
 }
 
-// CDNMetricsParams represents query parameters for CDN metrics.
+// CDNMetricsParams represents query parameters for CDN metrics. Minutes is the look-back
+// window (default 60), IntervalSeconds the bucket size of time series and Limit the size of
+// top lists. The filters are optional: Country and ASN are comma separated lists, Status a
+// comma separated list of status codes (it wins over StatusRange: "2xx" to "5xx"),
+// CacheStatus "HIT" or "MISS", DeviceType "mobile", "desktop" or "bot". GroupBy is not
+// supported by the API and is ignored.
 type CDNMetricsParams struct {
 	Minutes         int    `json:"minutes,omitempty"`
 	IntervalSeconds int    `json:"interval_seconds,omitempty"`
 	GroupBy         string `json:"group_by,omitempty"`
 	Limit           int    `json:"limit,omitempty"`
+	Country         string `json:"country,omitempty"`
+	ASN             string `json:"asn,omitempty"`
+	Status          string `json:"status,omitempty"`
+	StatusRange     string `json:"status_range,omitempty"`
+	CacheStatus     string `json:"cache_status,omitempty"`
+	DeviceType      string `json:"device_type,omitempty"`
+	PathPrefix      string `json:"path_prefix,omitempty"`
+}
+
+// CDNPurgeRequest selects what to purge: Everything, or a list of Paths.
+type CDNPurgeRequest struct {
+	Everything bool     `json:"everything,omitempty"`
+	Paths      []string `json:"paths,omitempty"`
+}
+
+// CDNPurge is the response of a purge request.
+type CDNPurge struct {
+	Detail    string `json:"detail"`
+	PurgeUUID string `json:"purge_uuid"`
+	Status    string `json:"status"`
+}
+
+// CDNPurgeProgress counts the edge nodes of a purge.
+type CDNPurgeProgress struct {
+	Expected  int `json:"expected"`
+	Completed int `json:"completed"`
+	Failed    int `json:"failed"`
+}
+
+// CDNPurgePOP is the progress of a purge in one location.
+type CDNPurgePOP struct {
+	POP       string `json:"pop"`
+	Expected  int    `json:"expected"`
+	Completed int    `json:"completed"`
+	Failed    int    `json:"failed"`
+}
+
+// CDNPurgeStatus is a purge with its progress. Status is "pending" or "in_progress", or one of
+// the final states "completed", "partial", "failed" and "expired".
+type CDNPurgeStatus struct {
+	PurgeUUID   string           `json:"purge_uuid"`
+	Scope       string           `json:"scope"`
+	Paths       []string         `json:"paths"`
+	Status      string           `json:"status"`
+	RequestedAt string           `json:"requested_at"`
+	CompletedAt *string          `json:"completed_at"`
+	Nodes       CDNPurgeProgress `json:"nodes"`
+	POPs        []CDNPurgePOP    `json:"pops"`
+}
+
+// CDNSignURLRequest represents a request to sign a URL. Path is a path or full URL (only the
+// path is signed). ExpiresIn is 60-604800 seconds (default 3600). ClientIP is required when
+// the zone binds tokens to the client IP.
+type CDNSignURLRequest struct {
+	Path      string `json:"path"`
+	ExpiresIn int    `json:"expires_in,omitempty"`
+	ClientIP  string `json:"client_ip,omitempty"`
+}
+
+// CDNSignedURL is a signed URL. Expires is a Unix time.
+type CDNSignedURL struct {
+	Detail    string `json:"detail"`
+	SignedURL string `json:"signed_url"`
+	Token     string `json:"token"`
+	Expires   int64  `json:"expires"`
 }
 
 // CreateCDNZoneRequest represents a request to create a CDN zone.
@@ -128,11 +240,18 @@ type CreateCDNZoneRequest struct {
 }
 
 // UpdateCDNZoneRequest represents a request to update a CDN zone.
+//
+// Enabling Token Auth for the first time generates a secret, returned once in
+// CDNZone.TokenAuthSecret. CORSAllowOrigins is "*" or a comma separated list of origins.
 type UpdateCDNZoneRequest struct {
-	Name            *string `json:"name,omitempty"`
-	CustomDomain    *string `json:"custom_domain,omitempty"`
-	SSLType         *string `json:"ssl_type,omitempty"`
-	CertificateUUID *string `json:"certificate_uuid,omitempty"`
+	Name               *string `json:"name,omitempty"`
+	CustomDomain       *string `json:"custom_domain,omitempty"`
+	SSLType            *string `json:"ssl_type,omitempty"`
+	CertificateUUID    *string `json:"certificate_uuid,omitempty"`
+	TokenAuthEnabled   *bool   `json:"token_auth_enabled,omitempty"`
+	TokenAuthIPBinding *bool   `json:"token_auth_ip_binding,omitempty"`
+	CORSEnabled        *bool   `json:"cors_enabled,omitempty"`
+	CORSAllowOrigins   *string `json:"cors_allow_origins,omitempty"`
 }
 
 // CreateCDNOriginRequest represents a request to create a CDN origin.
@@ -386,32 +505,33 @@ func (s *cdnService) DeleteWAFRule(ctx context.Context, zoneUUID, ruleUUID strin
 func (s *cdnService) GetMetrics(ctx context.Context, zoneUUID string, metricType string, params *CDNMetricsParams) (json.RawMessage, error) {
 	path := fmt.Sprintf("/cdn/zones/%s/metrics/%s", zoneUUID, metricType)
 
-	query := ""
 	if params != nil {
+		v := url.Values{}
 		if params.Minutes > 0 {
-			query += fmt.Sprintf("minutes=%d", params.Minutes)
+			v.Set("minutes", strconv.Itoa(params.Minutes))
 		}
 		if params.IntervalSeconds > 0 {
-			if query != "" {
-				query += "&"
-			}
-			query += fmt.Sprintf("interval_seconds=%d", params.IntervalSeconds)
-		}
-		if params.GroupBy != "" {
-			if query != "" {
-				query += "&"
-			}
-			query += fmt.Sprintf("group_by=%s", params.GroupBy)
+			v.Set("interval_seconds", strconv.Itoa(params.IntervalSeconds))
 		}
 		if params.Limit > 0 {
-			if query != "" {
-				query += "&"
-			}
-			query += fmt.Sprintf("limit=%d", params.Limit)
+			v.Set("limit", strconv.Itoa(params.Limit))
 		}
-	}
-	if query != "" {
-		path += "?" + query
+		for k, val := range map[string]string{
+			"country":      params.Country,
+			"asn":          params.ASN,
+			"status":       params.Status,
+			"status_range": params.StatusRange,
+			"cache_status": params.CacheStatus,
+			"device_type":  params.DeviceType,
+			"path_prefix":  params.PathPrefix,
+		} {
+			if val != "" {
+				v.Set(k, val)
+			}
+		}
+		if len(v) > 0 {
+			path += "?" + v.Encode()
+		}
 	}
 
 	data, err := s.client.getRaw(ctx, path)
@@ -436,4 +556,42 @@ func (s *cdnService) RequestSSL(ctx context.Context, zoneUUID string) error {
 func (s *cdnService) MoveZoneToProject(ctx context.Context, zoneUUID string, projectID int) error {
 	body := map[string]any{"project_id": projectID}
 	return s.client.post(ctx, fmt.Sprintf("/cdn/zones/%s/move-project", zoneUUID), body, nil)
+}
+
+// Cache purge
+
+func (s *cdnService) PurgeCache(ctx context.Context, zoneUUID string, req *CDNPurgeRequest) (*CDNPurge, error) {
+	var purge CDNPurge
+	if err := s.client.post(ctx, fmt.Sprintf("/cdn/zones/%s/purge-cache", zoneUUID), req, &purge); err != nil {
+		return nil, err
+	}
+	return &purge, nil
+}
+
+func (s *cdnService) ListPurges(ctx context.Context, zoneUUID string) ([]CDNPurgeStatus, error) {
+	var purges []CDNPurgeStatus
+	if err := s.client.get(ctx, fmt.Sprintf("/cdn/zones/%s/purge-cache", zoneUUID), &purges); err != nil {
+		return nil, err
+	}
+	return purges, nil
+}
+
+// Token Auth
+
+func (s *cdnService) RotateTokenSecret(ctx context.Context, zoneUUID string) (string, error) {
+	var result struct {
+		TokenAuthSecret string `json:"token_auth_secret"`
+	}
+	if err := s.client.post(ctx, fmt.Sprintf("/cdn/zones/%s/token-auth/rotate-secret", zoneUUID), nil, &result); err != nil {
+		return "", err
+	}
+	return result.TokenAuthSecret, nil
+}
+
+func (s *cdnService) SignURL(ctx context.Context, zoneUUID string, req *CDNSignURLRequest) (*CDNSignedURL, error) {
+	var signed CDNSignedURL
+	if err := s.client.post(ctx, fmt.Sprintf("/cdn/zones/%s/token-auth/sign-url", zoneUUID), req, &signed); err != nil {
+		return nil, err
+	}
+	return &signed, nil
 }
