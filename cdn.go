@@ -78,8 +78,10 @@ type CDNOrigin struct {
 	HostHeader         string `json:"host_header"`
 	BasePath           string `json:"base_path"`
 	Enabled            bool   `json:"enabled"`
-	CreatedAt          string `json:"created_at"`
-	UpdatedAt          string `json:"updated_at"`
+	// ObjectStorageBucketUUID is set when the origin serves a CubePath Object Storage bucket.
+	ObjectStorageBucketUUID *string `json:"object_storage_bucket_uuid,omitempty"`
+	CreatedAt               string  `json:"created_at"`
+	UpdatedAt               string  `json:"updated_at"`
 }
 
 // CDNRule represents a CDN edge rule or WAF rule.
@@ -134,6 +136,11 @@ type UpdateCDNZoneRequest struct {
 }
 
 // CreateCDNOriginRequest represents a request to create a CDN origin.
+//
+// To serve a CubePath Object Storage bucket, set ObjectStorageBucketUUID and only Name,
+// Weight, Priority and IsBackup: the API fills the address, TLS, health check and read only
+// credentials of the bucket, and refuses any other field. The request is serialized that way
+// automatically when ObjectStorageBucketUUID is set.
 type CreateCDNOriginRequest struct {
 	Name               string `json:"name"`
 	OriginURL          string `json:"origin_url,omitempty"`
@@ -149,6 +156,29 @@ type CreateCDNOriginRequest struct {
 	HostHeader         string `json:"host_header,omitempty"`
 	BasePath           string `json:"base_path,omitempty"`
 	Enabled            bool   `json:"enabled"`
+	// ObjectStorageBucketUUID makes the origin serve a CubePath Object Storage bucket.
+	ObjectStorageBucketUUID string `json:"object_storage_bucket_uuid,omitempty"`
+}
+
+// MarshalJSON sends only the fields the API accepts next to object_storage_bucket_uuid when the
+// origin is a bucket origin, and the regular fields otherwise.
+func (r CreateCDNOriginRequest) MarshalJSON() ([]byte, error) {
+	type plain CreateCDNOriginRequest
+	if r.ObjectStorageBucketUUID == "" {
+		return json.Marshal(plain(r))
+	}
+	body := map[string]interface{}{
+		"name":                       r.Name,
+		"object_storage_bucket_uuid": r.ObjectStorageBucketUUID,
+		"is_backup":                  r.IsBackup,
+	}
+	if r.Weight > 0 {
+		body["weight"] = r.Weight
+	}
+	if r.Priority > 0 {
+		body["priority"] = r.Priority
+	}
+	return json.Marshal(body)
 }
 
 // UpdateCDNOriginRequest represents a request to update a CDN origin.
@@ -159,6 +189,7 @@ type UpdateCDNOriginRequest struct {
 	Protocol           *string `json:"protocol,omitempty"`
 	Weight             *int    `json:"weight,omitempty"`
 	Priority           *int    `json:"priority,omitempty"`
+	IsBackup           *bool   `json:"is_backup,omitempty"`
 	HostHeader         *string `json:"host_header,omitempty"`
 	BasePath           *string `json:"base_path,omitempty"`
 	HealthCheckEnabled *bool   `json:"health_check_enabled,omitempty"`
