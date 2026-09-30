@@ -101,21 +101,21 @@ type TaskResponse struct {
 
 // CreateVPSRequest represents a request to create a VPS.
 type CreateVPSRequest struct {
-	Name                  string   `json:"name"`
-	PlanName              string   `json:"plan_name"`
-	TemplateName          string   `json:"template_name"`
-	LocationName          string   `json:"location_name"`
-	Label                 string   `json:"label,omitempty"`
-	NetworkID             *int     `json:"network_id,omitempty"`
-	SSHKeyIDs             []int    `json:"ssh_key_ids,omitempty"`
-	User                  string   `json:"user,omitempty"`
-	Password              string   `json:"password,omitempty"`
-	IPv4                  *bool    `json:"ipv4,omitempty"`
-	IPv6                  *bool    `json:"ipv6,omitempty"`
-	EnableBackups         *bool    `json:"enable_backups,omitempty"`
-	CustomCloudInit       *string  `json:"custom_cloudinit,omitempty"`
-	FirewallGroupIDs      []int    `json:"firewall_group_ids,omitempty"`
-	AvailabilityGroupUUID *string  `json:"availability_group_uuid,omitempty"`
+	Name                  string  `json:"name"`
+	PlanName              string  `json:"plan_name"`
+	TemplateName          string  `json:"template_name"`
+	LocationName          string  `json:"location_name"`
+	Label                 string  `json:"label,omitempty"`
+	NetworkID             *int    `json:"network_id,omitempty"`
+	SSHKeyIDs             []int   `json:"ssh_key_ids,omitempty"`
+	User                  string  `json:"user,omitempty"`
+	Password              string  `json:"password,omitempty"`
+	IPv4                  *bool   `json:"ipv4,omitempty"`
+	IPv6                  *bool   `json:"ipv6,omitempty"`
+	EnableBackups         *bool   `json:"enable_backups,omitempty"`
+	CustomCloudInit       *string `json:"custom_cloudinit,omitempty"`
+	FirewallGroupIDs      []int   `json:"firewall_group_ids,omitempty"`
+	AvailabilityGroupUUID *string `json:"availability_group_uuid,omitempty"`
 }
 
 // UpdateVPSRequest represents a request to update a VPS.
