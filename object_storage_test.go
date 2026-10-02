@@ -426,6 +426,21 @@ func TestObjectStorageObjectLock(t *testing.T) {
 	}
 }
 
+func TestObjectStorageBucketEncryption(t *testing.T) {
+	var rec recorded
+	c := newTestClient(t, 200, `[{"uuid":"b1","encryption":{"algorithm":"AES256","scope":"new_objects"}},{"uuid":"b2","encryption":null}]`, &rec)
+	buckets, err := c.ObjectStorage.ListBuckets(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := buckets[0].Encryption; e == nil || e.Algorithm != "AES256" || e.Scope != "new_objects" {
+		t.Fatalf("decoded %+v", buckets[0].Encryption)
+	}
+	if buckets[1].Encryption != nil {
+		t.Fatalf("null decoded as %+v", buckets[1].Encryption)
+	}
+}
+
 func TestObjectStorageBucketLockFieldsAndBypassKey(t *testing.T) {
 	var rec recorded
 	c := newTestClient(t, 200, `[{"uuid":"b1","object_lock":{"enabled":false,"default_retention":null},"locked_content_kept":true}]`, &rec)

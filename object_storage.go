@@ -125,6 +125,16 @@ type ObjectStorageBucket struct {
 	// LockedContentKept is true when the last delete left versions protected by Object Lock
 	// (retention or legal hold); the bucket stays and keeps being billed until they expire.
 	LockedContentKept bool `json:"locked_content_kept"`
+	// Encryption is the bucket's encryption at rest; nil until the bucket default is applied.
+	Encryption *ObjectStorageBucketEncryption `json:"encryption"`
+}
+
+// ObjectStorageBucketEncryption is the encryption at rest of a bucket: Algorithm "AES256"
+// (SSE-S3) and Scope "all_objects", or "new_objects" while objects written before the bucket
+// default may still be stored unencrypted.
+type ObjectStorageBucketEncryption struct {
+	Algorithm string `json:"algorithm"`
+	Scope     string `json:"scope"`
 }
 
 // ObjectStorageLockRetention is an Object Lock default retention. Mode is "governance" (keys
