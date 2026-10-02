@@ -156,6 +156,79 @@ func TestObjectStorageUsageQuery(t *testing.T) {
 	}
 }
 
+func TestObjectStorageBucketTags(t *testing.T) {
+	var rec recorded
+	c := newTestClient(t, 200, `[{"uuid":"b1","name":"photos","tags":{"env":"prod","team":""}}]`, &rec)
+	buckets, err := c.ObjectStorage.ListBuckets(context.Background(), &ObjectStorageListOptions{Tags: []string{"env=prod", "team"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Query != "tag=env%3Dprod&tag=team" {
+		t.Fatalf("query %q", rec.Query)
+	}
+	if len(buckets) != 1 || buckets[0].Tags["env"] != "prod" || len(buckets[0].Tags) != 2 {
+		t.Fatalf("decoded %+v", buckets)
+	}
+
+	// Keys share the options struct but the tag filter is only for buckets.
+	if _, err := c.ObjectStorage.ListKeys(context.Background(), &ObjectStorageListOptions{Tier: "ia", Tags: []string{"env"}}); err != nil || rec.Query != "tier=ia" {
+		t.Fatalf("keys query %q (%v)", rec.Query, err)
+	}
+
+	c = newTestClient(t, 201, `{"uuid":"b1","status":"pending","tags":{"env":"prod"}}`, &rec)
+	created, err := c.ObjectStorage.CreateBucket(context.Background(), &CreateObjectStorageBucketRequest{Name: "photos", Tier: "ia", Tags: map[string]string{"env": "prod"}})
+	if err != nil || created.Tags["env"] != "prod" {
+		t.Fatalf("created %+v (%v)", created, err)
+	}
+	if tags, _ := rec.Body["tags"].(map[string]interface{}); tags["env"] != "prod" {
+		t.Fatalf("create body %v", rec.Body)
+	}
+	if _, err := c.ObjectStorage.CreateBucket(context.Background(), &CreateObjectStorageBucketRequest{Name: "photos", Tier: "ia"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rec.Body["tags"]; ok {
+		t.Fatalf("tags sent when not set: %v", rec.Body)
+	}
+
+	// nil leaves tags untouched, an empty map clears them, a map replaces them.
+	v := "enabled"
+	if err := c.ObjectStorage.UpdateBucket(context.Background(), "b1", &UpdateObjectStorageBucketRequest{Versioning: &v}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rec.Body["tags"]; ok {
+		t.Fatalf("tags sent when nil: %v", rec.Body)
+	}
+	empty := map[string]string{}
+	if err := c.ObjectStorage.UpdateBucket(context.Background(), "b1", &UpdateObjectStorageBucketRequest{Tags: &empty}); err != nil {
+		t.Fatal(err)
+	}
+	if tags, ok := rec.Body["tags"].(map[string]interface{}); !ok || len(tags) != 0 {
+		t.Fatalf("clear body %v", rec.Body)
+	}
+	set := map[string]string{"env": "dev"}
+	if err := c.ObjectStorage.UpdateBucket(context.Background(), "b1", &UpdateObjectStorageBucketRequest{Tags: &set}); err != nil {
+		t.Fatal(err)
+	}
+	if tags, _ := rec.Body["tags"].(map[string]interface{}); len(tags) != 1 || tags["env"] != "dev" {
+		t.Fatalf("replace body %v", rec.Body)
+	}
+}
+
+func TestObjectStorageUsageTagFilter(t *testing.T) {
+	var rec recorded
+	c := newTestClient(t, 200, `{"period":"2026-09","buckets":[{"uuid":"b1","cost":1,"tags":{"env":"prod"}}]}`, &rec)
+	u, err := c.ObjectStorage.GetUsage(context.Background(), &ObjectStorageUsageOptions{Tags: []string{"env=prod"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Query != "tag=env%3Dprod" {
+		t.Fatalf("query %q", rec.Query)
+	}
+	if u.Buckets[0].Tags["env"] != "prod" {
+		t.Fatalf("decoded %+v", u)
+	}
+}
+
 func TestCDNBucketOriginSendsOnlyAllowedFields(t *testing.T) {
 	var rec recorded
 	c := newTestClient(t, 201, `{"uuid":"o1","name":"photos","object_storage_bucket_uuid":"b1"}`, &rec)

@@ -544,6 +544,7 @@ tiers, err := client.ObjectStorage.ListTiers(ctx)
 bucket, err := client.ObjectStorage.CreateBucket(ctx, &cubepath.CreateObjectStorageBucketRequest{
     Name: "my-backups",
     Tier: "infrequent_access",
+    Tags: map[string]string{"env": "prod", "team": "data"}, // optional labels
 })
 detail, err := client.ObjectStorage.GetBucket(ctx, bucket.UUID) // poll until Status == "active"
 
@@ -559,6 +560,13 @@ fmt.Println(key.AccessKeyID, key.SecretAccessKey, key.Endpoint, key.Region)
 // Versioning and deletion protection
 enabled := "enabled"
 err = client.ObjectStorage.UpdateBucket(ctx, bucket.UUID, &cubepath.UpdateObjectStorageBucketRequest{Versioning: &enabled})
+
+// Tags: a non nil Tags replaces every label (a pointer to an empty map removes them all)
+tags := map[string]string{"env": "staging"}
+err = client.ObjectStorage.UpdateBucket(ctx, bucket.UUID, &cubepath.UpdateObjectStorageBucketRequest{Tags: &tags})
+
+// Filter by tag: "key" (has the label) or "key=value", all must match
+prod, err := client.ObjectStorage.ListBuckets(ctx, &cubepath.ObjectStorageListOptions{Tags: []string{"env=prod", "team"}})
 
 // Month usage and cost
 usage, err := client.ObjectStorage.GetUsage(ctx, &cubepath.ObjectStorageUsageOptions{Period: "2026-09"})

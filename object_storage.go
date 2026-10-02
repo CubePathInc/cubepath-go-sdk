@@ -91,6 +91,9 @@ type ObjectStorageBucket struct {
 	UsageUpdatedAt *string                  `json:"usage_updated_at"`
 	MonthlyCharges float64                  `json:"monthly_charges"`
 	CDNConnected   bool                     `json:"cdn_connected"`
+	// Tags are the bucket labels (empty map when none). They are managed through the API only
+	// and are not visible through S3 bucket tagging.
+	Tags map[string]string `json:"tags"`
 }
 
 // ObjectStorageConnection holds the S3 connection details of a bucket.
@@ -143,6 +146,8 @@ type CreateObjectStorageBucketRequest struct {
 	Tier       string `json:"tier"`
 	ProjectID  *int   `json:"project_id,omitempty"`
 	Versioning bool   `json:"versioning,omitempty"`
+	// Tags are optional bucket labels: at most 50, key 1-128 and value 0-256 characters.
+	Tags map[string]string `json:"tags,omitempty"`
 }
 
 // ObjectStorageBucketCreated is the response of a bucket creation.
@@ -155,13 +160,18 @@ type ObjectStorageBucketCreated struct {
 	Tier      ObjectStorageTierSummary `json:"tier"`
 	Region    string                   `json:"region"`
 	Endpoint  string                   `json:"endpoint"`
+	Tags      map[string]string        `json:"tags"`
 }
 
 // UpdateObjectStorageBucketRequest represents a request to update a bucket. Versioning is
 // "enabled" or "suspended".
+//
+// Tags replaces every label of the bucket when set: nil leaves them unchanged and a pointer to
+// an empty map removes them all.
 type UpdateObjectStorageBucketRequest struct {
-	Versioning *string `json:"versioning,omitempty"`
-	Protected  *bool   `json:"protected,omitempty"`
+	Versioning *string            `json:"versioning,omitempty"`
+	Protected  *bool              `json:"protected,omitempty"`
+	Tags       *map[string]string `json:"tags,omitempty"`
 }
 
 // ObjectStorageBucketRef identifies a bucket an access key is limited to.
@@ -215,17 +225,22 @@ type ObjectStorageKeyCreated struct {
 }
 
 // ObjectStorageListOptions filters bucket and key lists. Tier is a tier uuid or slug.
+//
+// Tags only applies to ListBuckets: each item is "key" (the bucket has that label) or
+// "key=value" (split on the first "="); a bucket must match all of them (at most 10).
 type ObjectStorageListOptions struct {
 	ProjectID int
 	Tier      string
+	Tags      []string
 }
 
 // ObjectStorageUsageOptions selects the usage report. Period is "YYYY-MM" (default: current
-// month).
+// month). Tags filters the buckets like ObjectStorageListOptions.Tags.
 type ObjectStorageUsageOptions struct {
 	Period    string
 	ProjectID int
 	Tier      string
+	Tags      []string
 }
 
 // ObjectStorageFreeTierUsage is the included and used amount of one free tier item.
@@ -251,19 +266,20 @@ type ObjectStorageUsageTier struct {
 
 // ObjectStorageUsageBucket is the month usage of one bucket.
 type ObjectStorageUsageBucket struct {
-	UUID              string   `json:"uuid"`
-	Name              string   `json:"name"`
-	Status            string   `json:"status"`
-	ProjectID         *int     `json:"project_id"`
-	TierUUID          string   `json:"tier_uuid"`
-	StorageGiBHours   *float64 `json:"storage_gib_hours"`
-	StorageGiBMonth   *float64 `json:"storage_gib_month"`
-	EgressBytes       *int64   `json:"egress_bytes"`
-	CDNBytes          *int64   `json:"cdn_bytes"`
-	ClassARequests    *int64   `json:"class_a_requests"`
-	ClassBRequests    *int64   `json:"class_b_requests"`
-	ClassBCDNRequests *int64   `json:"class_b_cdn_requests"`
-	Cost              float64  `json:"cost"`
+	UUID              string            `json:"uuid"`
+	Name              string            `json:"name"`
+	Status            string            `json:"status"`
+	ProjectID         *int              `json:"project_id"`
+	TierUUID          string            `json:"tier_uuid"`
+	StorageGiBHours   *float64          `json:"storage_gib_hours"`
+	StorageGiBMonth   *float64          `json:"storage_gib_month"`
+	EgressBytes       *int64            `json:"egress_bytes"`
+	CDNBytes          *int64            `json:"cdn_bytes"`
+	ClassARequests    *int64            `json:"class_a_requests"`
+	ClassBRequests    *int64            `json:"class_b_requests"`
+	ClassBCDNRequests *int64            `json:"class_b_cdn_requests"`
+	Cost              float64           `json:"cost"`
+	Tags              map[string]string `json:"tags"`
 }
 
 // ObjectStorageUsage is the month usage of the organization per tier and bucket. Quantity
@@ -284,7 +300,7 @@ type objectStorageService struct {
 	client *Client
 }
 
-func (o *ObjectStorageListOptions) query() string {
+func (o *ObjectStorageListOptions) query(withTags bool) string {
 	if o == nil {
 		return ""
 	}
@@ -294,6 +310,11 @@ func (o *ObjectStorageListOptions) query() string {
 	}
 	if o.Tier != "" {
 		v.Set("tier", o.Tier)
+	}
+	if withTags {
+		for _, t := range o.Tags {
+			v.Add("tag", t)
+		}
 	}
 	if len(v) == 0 {
 		return ""
@@ -315,6 +336,9 @@ func (o *ObjectStorageUsageOptions) query() string {
 	if o.Tier != "" {
 		v.Set("tier", o.Tier)
 	}
+	for _, t := range o.Tags {
+		v.Add("tag", t)
+	}
 	if len(v) == 0 {
 		return ""
 	}
@@ -331,7 +355,7 @@ func (s *objectStorageService) ListTiers(ctx context.Context) ([]ObjectStorageTi
 
 func (s *objectStorageService) ListBuckets(ctx context.Context, opts *ObjectStorageListOptions) ([]ObjectStorageBucket, error) {
 	var buckets []ObjectStorageBucket
-	if err := s.client.get(ctx, "/object-storage/buckets"+opts.query(), &buckets); err != nil {
+	if err := s.client.get(ctx, "/object-storage/buckets"+opts.query(true), &buckets); err != nil {
 		return nil, err
 	}
 	return buckets, nil
@@ -367,7 +391,7 @@ func (s *objectStorageService) DeleteBucket(ctx context.Context, uuid string, fo
 
 func (s *objectStorageService) ListKeys(ctx context.Context, opts *ObjectStorageListOptions) ([]ObjectStorageKey, error) {
 	var keys []ObjectStorageKey
-	if err := s.client.get(ctx, "/object-storage/keys"+opts.query(), &keys); err != nil {
+	if err := s.client.get(ctx, "/object-storage/keys"+opts.query(false), &keys); err != nil {
 		return nil, err
 	}
 	return keys, nil
