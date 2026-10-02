@@ -362,3 +362,93 @@ func TestObjectStorageBucketLifecycle(t *testing.T) {
 		t.Fatalf("got %+v %+v", rec, change)
 	}
 }
+
+func TestObjectStorageObjectLock(t *testing.T) {
+	var rec recorded
+	c := newTestClient(t, 201, `{"uuid":"b1","status":"pending","object_lock":{"enabled":true,"default_retention":{"mode":"governance","days":30,"years":null}}}`, &rec)
+	days := 30
+	b, err := c.ObjectStorage.CreateBucket(context.Background(), &CreateObjectStorageBucketRequest{
+		Name: "vault", Tier: "infrequent_access", ObjectLock: true,
+		ObjectLockDefault:     &ObjectStorageLockRetention{Mode: "governance", Days: &days},
+		AcceptObjectLockTerms: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rec.Body["versioning"]; ok {
+		t.Fatalf("versioning false sent with Object Lock: %v", rec.Body)
+	}
+	def, _ := rec.Body["object_lock_default"].(map[string]interface{})
+	if rec.Body["object_lock"] != true || rec.Body["accept_object_lock_terms"] != true || def["mode"] != "governance" || def["days"] != float64(30) {
+		t.Fatalf("body %v", rec.Body)
+	}
+	if _, ok := def["years"]; ok {
+		t.Fatalf("years sent: %v", def)
+	}
+	if !b.ObjectLock.Enabled || b.ObjectLock.DefaultRetention == nil || *b.ObjectLock.DefaultRetention.Days != 30 || b.ObjectLock.DefaultRetention.Years != nil {
+		t.Fatalf("decoded %+v", b.ObjectLock)
+	}
+
+	// Without lock nothing about it is sent
+	if _, err := c.ObjectStorage.CreateBucket(context.Background(), &CreateObjectStorageBucketRequest{Name: "plain", Tier: "ia"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"object_lock", "object_lock_default", "accept_object_lock_terms"} {
+		if _, ok := rec.Body[k]; ok {
+			t.Fatalf("%s sent without lock: %v", k, rec.Body)
+		}
+	}
+
+	years := 1
+	if err := c.ObjectStorage.SetObjectStorageBucketObjectLock(context.Background(), "b1", &SetObjectStorageBucketObjectLockRequest{
+		DefaultRetention: &ObjectStorageLockRetention{Mode: "compliance", Years: &years}, AcceptObjectLockTerms: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	def, _ = rec.Body["default_retention"].(map[string]interface{})
+	if rec.Method != http.MethodPut || rec.Path != "/object-storage/buckets/b1/object-lock" || def["mode"] != "compliance" || def["years"] != float64(1) || rec.Body["accept_object_lock_terms"] != true {
+		t.Fatalf("got %+v", rec)
+	}
+
+	// Removing the rule sends an explicit null
+	if err := c.ObjectStorage.SetObjectStorageBucketObjectLock(context.Background(), "b1", &SetObjectStorageBucketObjectLockRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := rec.Body["default_retention"]; !ok || v != nil {
+		t.Fatalf("default_retention not null: %v", rec.Body)
+	}
+
+	if err := c.ObjectStorage.DeleteBucketWithOptions(context.Background(), "b1", &DeleteObjectStorageBucketOptions{Force: true, BypassGovernance: true}); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Method != http.MethodDelete || rec.Query != "bypass_governance=true&force=true" {
+		t.Fatalf("got %+v", rec)
+	}
+}
+
+func TestObjectStorageBucketLockFieldsAndBypassKey(t *testing.T) {
+	var rec recorded
+	c := newTestClient(t, 200, `[{"uuid":"b1","object_lock":{"enabled":false,"default_retention":null},"locked_content_kept":true}]`, &rec)
+	buckets, err := c.ObjectStorage.ListBuckets(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buckets[0].ObjectLock.Enabled || buckets[0].ObjectLock.DefaultRetention != nil || !buckets[0].LockedContentKept {
+		t.Fatalf("decoded %+v", buckets[0])
+	}
+
+	c = newTestClient(t, 201, `{"uuid":"k1","permission":"read_write","bypass_governance":true}`, &rec)
+	k, err := c.ObjectStorage.CreateKey(context.Background(), &CreateObjectStorageKeyRequest{Name: "veeam", Tier: "ia", Permission: "read_write", BypassGovernance: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Body["bypass_governance"] != true || !k.BypassGovernance {
+		t.Fatalf("body %v decoded %+v", rec.Body, k)
+	}
+	if _, err := c.ObjectStorage.CreateKey(context.Background(), &CreateObjectStorageKeyRequest{Name: "web", Tier: "ia", Permission: "read_only"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rec.Body["bypass_governance"]; ok {
+		t.Fatalf("bypass_governance sent when not asked: %v", rec.Body)
+	}
+}
