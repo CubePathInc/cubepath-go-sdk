@@ -571,6 +571,10 @@ prod, err := client.ObjectStorage.ListBuckets(ctx, &cubepath.ObjectStorageListOp
 // Month usage and cost
 usage, err := client.ObjectStorage.GetUsage(ctx, &cubepath.ObjectStorageUsageOptions{Period: "2026-09"})
 
+// Charts of one bucket (GraphQL): stored size and objects, traffic and responses per step
+// over H1, H3, H6, H12, H24, D3, D7 or D30. Raw JSON: {"storage", "traffic", "responses", ...}
+metrics, err := client.ObjectStorage.GetBucketMetrics(ctx, bucket.UUID, "D7")
+
 // Delete (force purges the bucket content first)
 err = client.ObjectStorage.DeleteKey(ctx, key.UUID)
 err = client.ObjectStorage.DeleteBucket(ctx, bucket.UUID, true)

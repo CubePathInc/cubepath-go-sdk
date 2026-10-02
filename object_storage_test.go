@@ -275,3 +275,41 @@ func TestCDNRegularOriginUnchanged(t *testing.T) {
 		t.Fatalf("bucket uuid sent on a regular origin: %v", rec.Body)
 	}
 }
+
+func TestObjectStorageBucketMetricsViaGraphQL(t *testing.T) {
+	var rec recorded
+	c := newTestClient(t, 200, `{"data":{"objectStorageBucket":{"uuid":"b1","name":"photos","storageMeasuredAt":1,"storage":{"start":1,"end":2,"step":3600,"series":[{"name":"size_bytes","unit":"BYTES","points":[{"ts":1,"value":42}]}]},"traffic":{"start":1,"end":2,"step":300,"series":[]},"responses":{"start":1,"end":2,"step":300,"series":[]}}}}`, &rec)
+	raw, err := c.ObjectStorage.GetBucketMetrics(context.Background(), "b1", "D7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Method != http.MethodPost || rec.Path != "/graphql" {
+		t.Fatalf("got %+v", rec)
+	}
+	vars, _ := rec.Body["variables"].(map[string]interface{})
+	if vars["uuid"] != "b1" || vars["range"] != "D7" {
+		t.Fatalf("body %v", rec.Body)
+	}
+	var b struct {
+		Name    string `json:"name"`
+		Storage struct {
+			Step int `json:"step"`
+		} `json:"storage"`
+	}
+	if err := json.Unmarshal(raw, &b); err != nil || b.Name != "photos" || b.Storage.Step != 3600 {
+		t.Fatalf("raw %s (%v)", raw, err)
+	}
+}
+
+func TestObjectStorageBucketMetricsNotFound(t *testing.T) {
+	var rec recorded
+	c := newTestClient(t, 200, `{"data":{"objectStorageBucket":null},"errors":[{"message":"Resource not found.","extensions":{"code":"NOT_FOUND"}}]}`, &rec)
+	_, err := c.ObjectStorage.GetBucketMetrics(context.Background(), "nope", "")
+	if !IsNotFound(err) {
+		t.Fatalf("err %v", err)
+	}
+	vars, _ := rec.Body["variables"].(map[string]interface{})
+	if vars["range"] != "H24" {
+		t.Fatalf("default range %v", vars["range"])
+	}
+}

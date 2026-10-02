@@ -2,6 +2,7 @@ package cubepath
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -30,6 +31,16 @@ type ObjectStorageService interface {
 	DeleteKey(ctx context.Context, uuid string) error
 
 	GetUsage(ctx context.Context, opts *ObjectStorageUsageOptions) (*ObjectStorageUsage, error)
+
+	// GetBucketMetrics returns the chart series of a bucket over a window (H1, H3, H6, H12, H24,
+	// D3, D7 or D30) as the raw GraphQL ObjectStorageBucket: {"uuid", "name", "storageMeasuredAt",
+	// "storage", "traffic", "responses"}, each part a MetricsResult {"start", "end", "step",
+	// "series": [{"name", "unit", "points": [{"ts", "value"}]}]}. storage: size_bytes, objects
+	// (hourly); traffic: egress_bytes, cdn_bytes, ingress_bytes, class_a_requests,
+	// class_b_requests, free_requests; responses: responses_2xx, responses_3xx, responses_4xx,
+	// responses_5xx, responses_429, responses_other. Traffic and responses are totals per step,
+	// not rates. Served through GraphQL.
+	GetBucketMetrics(ctx context.Context, uuid string, timeRange string) (json.RawMessage, error)
 }
 
 // ObjectStorageTierSummary identifies the tier of a bucket or access key.
@@ -415,4 +426,24 @@ func (s *objectStorageService) GetUsage(ctx context.Context, opts *ObjectStorage
 		return nil, err
 	}
 	return &usage, nil
+}
+
+// objectStorageBucketMetricsQuery is shared by GetBucketMetrics and its tests.
+const objectStorageBucketMetricsQuery = `query($uuid: ID!, $range: TimeRange!) { objectStorageBucket(uuid: $uuid) { uuid name storageMeasuredAt storage(range: $range) { start end step series { name unit points { ts value } } } traffic(range: $range) { start end step series { name unit points { ts value } } } responses(range: $range) { start end step series { name unit points { ts value } } } } }`
+
+func (s *objectStorageService) GetBucketMetrics(ctx context.Context, uuid string, timeRange string) (json.RawMessage, error) {
+	if timeRange == "" {
+		timeRange = "H24"
+	}
+	var data struct {
+		Bucket json.RawMessage `json:"objectStorageBucket"`
+	}
+	vars := map[string]interface{}{"uuid": uuid, "range": timeRange}
+	if err := s.client.graphQL(ctx, objectStorageBucketMetricsQuery, vars, &data); err != nil {
+		return nil, err
+	}
+	if len(data.Bucket) == 0 || string(data.Bucket) == "null" {
+		return nil, &APIError{StatusCode: 404, Message: "Not Found", Detail: "Bucket not found"}
+	}
+	return data.Bucket, nil
 }
