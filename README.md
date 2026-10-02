@@ -569,7 +569,7 @@ err = client.ObjectStorage.DeleteBucket(ctx, bucket.UUID, true)
 ```
 
 Lifecycle rules delete objects in the background, permanently. `PutBucketLifecycle` replaces
-every rule; the change is applied asynchronously (seconds, up to 10 minutes after a previous
+every rule; the change is applied asynchronously (seconds, up to about 12 minutes after a previous
 change of the same bucket) and objects go within 48 hours of their due date. In a versioned
 bucket an expiration only adds a delete marker: add a noncurrent version rule to free space.
 
