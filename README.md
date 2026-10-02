@@ -587,6 +587,37 @@ origin, err := client.CDN.CreateOrigin(ctx, zone.UUID, &cubepath.CreateCDNOrigin
 
 Deleting that origin stops serving the bucket.
 
+#### Presigned URLs
+
+This SDK talks to the CubePath API, not to S3. To share one object for a while, sign a
+presigned GET URL with the official S3 SDK and one of your access keys: endpoint
+`https://eu.cubestorage.io`, region `eu`, path style, SigV4. A URL lasts at most 24 hours
+(86400 seconds), the file is always downloaded as an attachment (do not set
+`ResponseContentDisposition` or any other `response-*` override: they are refused) and every
+download counts as egress of the bucket. Deleting the access key that signed a URL cuts it
+before it expires. From a terminal, `cubecli s3 presign <bucket>/<key> --expires 6h` does the
+same.
+
+```go
+import (
+    "github.com/aws/aws-sdk-go-v2/aws"
+    "github.com/aws/aws-sdk-go-v2/credentials"
+    "github.com/aws/aws-sdk-go-v2/service/s3"
+)
+
+s3c := s3.New(s3.Options{
+    Region:       "eu",
+    BaseEndpoint: aws.String("https://eu.cubestorage.io"),
+    UsePathStyle: true,
+    Credentials:  credentials.NewStaticCredentialsProvider(key.AccessKeyID, key.SecretAccessKey, ""),
+})
+signed, err := s3.NewPresignClient(s3c).PresignGetObject(ctx, &s3.GetObjectInput{
+    Bucket: aws.String("my-backups"),
+    Key:    aws.String("reports/2026-09.pdf"),
+}, s3.WithPresignExpires(24*time.Hour))
+fmt.Println(signed.URL)
+```
+
 ### Managed Databases
 
 Managed MySQL, PostgreSQL and Valkey. Operations run in the background: poll `Get` until the
