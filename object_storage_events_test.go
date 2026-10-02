@@ -53,9 +53,9 @@ func TestObjectStorageEventDestinationRoutes(t *testing.T) {
 			_, err := c.ObjectStorage.RotateEventDestinationSecret(ctx, "d1")
 			return err
 		}},
-		{"test", `{"detail":"Test event queued"}`, "POST", "/object-storage/event-destinations/d1/test", "", func(c *Client) error { return c.ObjectStorage.TestEventDestination(ctx, "d1") }},
-		{"deliveries", `[]`, "GET", "/object-storage/event-destinations/d1/deliveries", "limit=10&status=failed", func(c *Client) error {
-			_, err := c.ObjectStorage.ListEventDeliveries(ctx, "d1", &ObjectStorageEventDeliveryOptions{Status: "failed", Limit: 10})
+		{"test", `{"detail":"Test event sent. Check the delivery history for the result."}`, "POST", "/object-storage/event-destinations/d1/test", "", func(c *Client) error { return c.ObjectStorage.TestEventDestination(ctx, "d1") }},
+		{"deliveries", `{"deliveries":[],"next_before":null}`, "GET", "/object-storage/event-destinations/d1/deliveries", "before=1790964001250&limit=10&status=failed", func(c *Client) error {
+			_, err := c.ObjectStorage.ListEventDeliveries(ctx, "d1", &ObjectStorageEventDeliveryOptions{Status: "failed", Limit: 10, Before: 1790964001250})
 			return err
 		}},
 		{"rules", `[]`, "GET", "/object-storage/buckets/b1/event-rules", "", func(c *Client) error { _, err := c.ObjectStorage.ListEventRules(ctx, "b1"); return err }},
@@ -107,13 +107,15 @@ func TestVerifyStorageEventSignature(t *testing.T) {
 		"v1=" + eventVectorSig,
 		"v1=" + eventVectorPrevSig + ",v1=" + eventVectorSig,
 		"v1=" + eventVectorSig + " v1=" + eventVectorPrevSig,
+		// The exact form the service sends during a rotation.
+		"v1=" + eventVectorSig + ", v1=" + eventVectorPrevSig,
 	}
 	for _, h := range ok {
 		if err := verifyStorageEventSignatureAt(eventVectorSecret, eventVectorTimestamp, body, h, 0, now); err != nil {
 			t.Fatalf("%q: %v", h, err)
 		}
 	}
-	if err := verifyStorageEventSignatureAt("whsec_previous", eventVectorTimestamp, body, "v1="+eventVectorSig+",v1="+eventVectorPrevSig, 0, now); err != nil {
+	if err := verifyStorageEventSignatureAt("whsec_previous", eventVectorTimestamp, body, "v1="+eventVectorSig+", v1="+eventVectorPrevSig, 0, now); err != nil {
 		t.Fatalf("previous secret: %v", err)
 	}
 	bad := []struct {
@@ -139,5 +141,21 @@ func TestVerifyStorageEventSignature(t *testing.T) {
 	}
 	if err := VerifyStorageEventSignature(eventVectorSecret, eventVectorTimestamp, body, "v1="+eventVectorSig, 0); !errors.Is(err, ErrStorageEventSignature) {
 		t.Fatalf("old vector must be expired against the clock: %v", err)
+	}
+}
+
+func TestObjectStorageListEventDeliveriesPage(t *testing.T) {
+	var rec recorded
+	c := newTestClient(t, 200, `{"deliveries":[{"ts":"2026-10-02T18:00:01.250","ts_ms":1790964001250,"event_id":"evt_1","delivery_id":"dlv_1","event_type":"object.created","bucket_uuid":"b1","bucket_name":"photos","rule_uuid":"r1","object_key":"uploads/a.jpg","attempt":1,"status":"success","http_status":200,"latency_ms":84,"error":""}],"next_before":1790964001250}`, &rec)
+	page, err := c.ObjectStorage.ListEventDeliveries(context.Background(), "d1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Query != "" || len(page.Deliveries) != 1 || page.NextBefore == nil || *page.NextBefore != 1790964001250 {
+		t.Fatalf("got %+v %+v", rec, page)
+	}
+	d := page.Deliveries[0]
+	if d.BucketName == nil || *d.BucketName != "photos" || d.HTTPStatus != 200 || d.LatencyMs != 84 || d.TSMs != 1790964001250 {
+		t.Fatalf("decoded %+v", d)
 	}
 }

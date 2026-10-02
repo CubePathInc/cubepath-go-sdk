@@ -40,10 +40,13 @@ type ObjectStorageEventDestination struct {
 	PayloadFormat  string                                `json:"payload_format"`
 	Status         string                                `json:"status"`
 	DisabledReason *string                               `json:"disabled_reason"`
-	LastSuccessAt  *string                               `json:"last_success_at"`
-	LastFailureAt  *string                               `json:"last_failure_at"`
-	LastError      *string                               `json:"last_error"`
-	RulesCount     int                                   `json:"rules_count"`
+	// PreviousSecretExpiresAt is until when the secret before the last rotation still signs.
+	PreviousSecretExpiresAt *string `json:"previous_secret_expires_at"`
+	LastSuccessAt           *string `json:"last_success_at"`
+	LastFailureAt           *string `json:"last_failure_at"`
+	LastError               *string `json:"last_error"`
+	RulesCount              int     `json:"rules_count"`
+	CreatedAt               *string `json:"created_at"`
 }
 
 // ObjectStorageEventDestinationSecret is the answer of a create or a secret rotation: the
@@ -51,6 +54,8 @@ type ObjectStorageEventDestination struct {
 type ObjectStorageEventDestinationSecret struct {
 	Destination   ObjectStorageEventDestination `json:"destination"`
 	SigningSecret *string                       `json:"signing_secret"`
+	// PreviousSecretExpiresAt is only set by a rotation: the old secret signs until then.
+	PreviousSecretExpiresAt *string `json:"previous_secret_expires_at,omitempty"`
 }
 
 // CreateObjectStorageEventDestinationRequest creates a destination: Type "webhook" with URL
@@ -72,15 +77,38 @@ type UpdateObjectStorageEventDestinationRequest struct {
 	Enabled       *bool   `json:"enabled,omitempty"`
 }
 
-// ObjectStorageEventDelivery is one delivery of an event to a destination.
-type ObjectStorageEventDelivery map[string]interface{}
+// ObjectStorageEventDelivery is one delivery attempt of an event to a destination. Status is
+// success, failed (retried later) or dead (given up). Error is "" on success.
+type ObjectStorageEventDelivery struct {
+	TS         string  `json:"ts"`
+	TSMs       int64   `json:"ts_ms"`
+	EventID    string  `json:"event_id"`
+	DeliveryID string  `json:"delivery_id"`
+	EventType  string  `json:"event_type"`
+	BucketUUID string  `json:"bucket_uuid"`
+	BucketName *string `json:"bucket_name"`
+	RuleUUID   string  `json:"rule_uuid"`
+	ObjectKey  string  `json:"object_key"`
+	Attempt    int     `json:"attempt"`
+	Status     string  `json:"status"`
+	HTTPStatus int     `json:"http_status"`
+	LatencyMs  int64   `json:"latency_ms"`
+	Error      string  `json:"error"`
+}
+
+// ObjectStorageEventDeliveries is one page of the delivery history, newest first. NextBefore,
+// when set, goes in ObjectStorageEventDeliveryOptions.Before to get the next (older) page.
+type ObjectStorageEventDeliveries struct {
+	Deliveries []ObjectStorageEventDelivery `json:"deliveries"`
+	NextBefore *int64                       `json:"next_before"`
+}
 
 // ObjectStorageEventDeliveryOptions filters the delivery history: Status success, failed or
-// dead; Limit (default 50); Before, a timestamp to page back from.
+// dead; Limit 1 to 200 (default 50); Before, unix milliseconds (exclusive) to page back from.
 type ObjectStorageEventDeliveryOptions struct {
 	Status string
 	Limit  int
-	Before string
+	Before int64
 }
 
 // ObjectStorageEventRuleDestination identifies the destination of a rule.
@@ -104,6 +132,7 @@ type ObjectStorageEventRule struct {
 	Enabled      bool                              `json:"enabled"`
 	Status       string                            `json:"status"`
 	ErrorMessage *string                           `json:"error_message"`
+	CreatedAt    *string                           `json:"created_at"`
 }
 
 // CreateObjectStorageEventRuleRequest creates a rule on a bucket. Enabled defaults to true.
@@ -182,7 +211,7 @@ func (s *objectStorageService) TestEventDestination(ctx context.Context, uuid st
 	return s.client.post(ctx, eventDestinationPath(uuid)+"/test", nil, nil)
 }
 
-func (s *objectStorageService) ListEventDeliveries(ctx context.Context, uuid string, opts *ObjectStorageEventDeliveryOptions) ([]ObjectStorageEventDelivery, error) {
+func (s *objectStorageService) ListEventDeliveries(ctx context.Context, uuid string, opts *ObjectStorageEventDeliveryOptions) (*ObjectStorageEventDeliveries, error) {
 	path := eventDestinationPath(uuid) + "/deliveries"
 	if opts != nil {
 		v := url.Values{}
@@ -192,18 +221,18 @@ func (s *objectStorageService) ListEventDeliveries(ctx context.Context, uuid str
 		if opts.Limit > 0 {
 			v.Set("limit", strconv.Itoa(opts.Limit))
 		}
-		if opts.Before != "" {
-			v.Set("before", opts.Before)
+		if opts.Before > 0 {
+			v.Set("before", strconv.FormatInt(opts.Before, 10))
 		}
 		if len(v) > 0 {
 			path += "?" + v.Encode()
 		}
 	}
-	var out []ObjectStorageEventDelivery
+	var out ObjectStorageEventDeliveries
 	if err := s.client.get(ctx, path, &out); err != nil {
 		return nil, err
 	}
-	return out, nil
+	return &out, nil
 }
 
 func (s *objectStorageService) ListEventRules(ctx context.Context, bucketUUID string) ([]ObjectStorageEventRule, error) {
@@ -244,7 +273,7 @@ const DefaultStorageEventTolerance = 5 * time.Minute
 // VerifyStorageEventSignature checks a storage event webhook delivery: secret is the signing
 // secret of the destination, timestamp the CubePath-Timestamp header (unix seconds), body the raw
 // request body and header the CubePath-Signature header ("v1=<hex>", several during a secret
-// rotation, separated by commas or spaces). The signature is the hex HMAC-SHA256 of
+// rotation, as "v1=<new>, v1=<previous>"). The signature is the hex HMAC-SHA256 of
 // timestamp + "." + body. A tolerance of 0 uses DefaultStorageEventTolerance; a negative one
 // skips the timestamp check.
 func VerifyStorageEventSignature(secret, timestamp string, body []byte, header string, tolerance time.Duration) error {

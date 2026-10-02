@@ -69,9 +69,11 @@ type ObjectStorageService interface {
 	DeleteEventDestination(ctx context.Context, uuid string) error
 	// RotateEventDestinationSecret issues a new signing secret; the previous one stays valid 24 h.
 	RotateEventDestinationSecret(ctx context.Context, uuid string) (*ObjectStorageEventDestinationSecret, error)
-	// TestEventDestination sends a cubepath.ping event to the destination.
+	// TestEventDestination delivers a cubepath.ping now (the destination must be active); the
+	// outcome shows up in the delivery history.
 	TestEventDestination(ctx context.Context, uuid string) error
-	ListEventDeliveries(ctx context.Context, uuid string, opts *ObjectStorageEventDeliveryOptions) ([]ObjectStorageEventDelivery, error)
+	// ListEventDeliveries pages the delivery history back with opts.Before = NextBefore.
+	ListEventDeliveries(ctx context.Context, uuid string, opts *ObjectStorageEventDeliveryOptions) (*ObjectStorageEventDeliveries, error)
 	ListEventRules(ctx context.Context, bucketUUID string) ([]ObjectStorageEventRule, error)
 	CreateEventRule(ctx context.Context, bucketUUID string, req *CreateObjectStorageEventRuleRequest) (*ObjectStorageEventRule, error)
 	UpdateEventRule(ctx context.Context, bucketUUID, ruleUUID string, req *UpdateObjectStorageEventRuleRequest) (*ObjectStorageEventRule, error)

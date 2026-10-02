@@ -676,12 +676,13 @@ rule, err := client.ObjectStorage.CreateEventRule(ctx, bucket.UUID, &cubepath.Cr
 // rule.Status is "pending" until the rule is applied to the bucket, then "active".
 
 err = client.ObjectStorage.TestEventDestination(ctx, created.Destination.UUID) // sends a cubepath.ping
-failed, err := client.ObjectStorage.ListEventDeliveries(ctx, created.Destination.UUID,
+page, err := client.ObjectStorage.ListEventDeliveries(ctx, created.Destination.UUID,
     &cubepath.ObjectStorageEventDeliveryOptions{Status: "failed", Limit: 20})
+// Older page: Before: *page.NextBefore (unix milliseconds) while NextBefore is not nil.
 ```
 
 Verify every webhook delivery before trusting it. `CubePath-Signature` holds one or more
-`v1=<hex>` values, each the HMAC-SHA256 of `CubePath-Timestamp + "." + raw body`;
+`v1=<hex>` values (`v1=<new>, v1=<previous>` for 24 hours after a rotation), each the HMAC-SHA256 of `CubePath-Timestamp + "." + raw body`;
 `VerifyStorageEventSignature` checks them in constant time and rejects timestamps more than
 5 minutes away (pass 0 for that default):
 
