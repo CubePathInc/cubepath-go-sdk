@@ -467,36 +467,3 @@ func TestObjectStorageBucketLockFieldsAndBypassKey(t *testing.T) {
 		t.Fatalf("bypass_governance sent when not asked: %v", rec.Body)
 	}
 }
-
-func TestObjectStorageCreateBucketEncryptionOptional(t *testing.T) {
-	var rec recorded
-	c := newTestClient(t, 201, `{"uuid":"b1","name":"scratch","status":"pending"}`, &rec)
-	if _, err := c.ObjectStorage.CreateBucket(context.Background(), &CreateObjectStorageBucketRequest{Name: "photos", Tier: "infrequent_access"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, sent := rec.Body["encryption"]; sent {
-		t.Fatalf("encryption sent by default: %v", rec.Body)
-	}
-	off := false
-	if _, err := c.ObjectStorage.CreateBucket(context.Background(), &CreateObjectStorageBucketRequest{Name: "scratch", Tier: "infrequent_access", Encryption: &off}); err != nil {
-		t.Fatal(err)
-	}
-	if rec.Body["encryption"] != false {
-		t.Fatalf("body %v", rec.Body)
-	}
-}
-
-func TestObjectStorageEnableBucketEncryption(t *testing.T) {
-	var rec recorded
-	c := newTestClient(t, 202, `{"detail":"Encryption at rest is being enabled","reencrypt_job_id":7}`, &rec)
-	change, err := c.ObjectStorage.EnableBucketEncryption(context.Background(), "b1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rec.Method != http.MethodPut || rec.Path != "/object-storage/buckets/b1/encryption" || rec.Body["enabled"] != true {
-		t.Fatalf("got %+v", rec)
-	}
-	if change.ReencryptJobID == nil || *change.ReencryptJobID != 7 || change.Detail == "" {
-		t.Fatalf("decoded %+v", change)
-	}
-}

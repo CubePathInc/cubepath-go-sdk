@@ -31,10 +31,6 @@ type ObjectStorageService interface {
 	// retention of a bucket created with Object Lock. Object Lock itself can only be enabled
 	// when the bucket is created.
 	SetObjectStorageBucketObjectLock(ctx context.Context, uuid string, req *SetObjectStorageBucketObjectLockRequest) error
-	// EnableBucketEncryption turns on encryption at rest (AES-256) for a bucket created without
-	// it; the objects already stored are encrypted in the background (ReencryptJobID). It cannot
-	// be turned off afterwards. Calling it on an encrypted bucket changes nothing.
-	EnableBucketEncryption(ctx context.Context, uuid string) (*ObjectStorageEncryptionChange, error)
 
 	ListKeys(ctx context.Context, opts *ObjectStorageListOptions) ([]ObjectStorageKey, error)
 	// CreateKey creates an access key. The secret is only returned by this call.
@@ -129,7 +125,7 @@ type ObjectStorageBucket struct {
 	// LockedContentKept is true when the last delete left versions protected by Object Lock
 	// (retention or legal hold); the bucket stays and keeps being billed until they expire.
 	LockedContentKept bool `json:"locked_content_kept"`
-	// Encryption is the bucket's encryption at rest; nil while it is off.
+	// Encryption is the bucket's encryption at rest; nil until the bucket default is applied.
 	Encryption *ObjectStorageBucketEncryption `json:"encryption"`
 }
 
@@ -139,15 +135,6 @@ type ObjectStorageBucket struct {
 type ObjectStorageBucketEncryption struct {
 	Algorithm string `json:"algorithm"`
 	Scope     string `json:"scope"`
-	// AppliedAt is when encryption was turned on for the bucket (UTC, ISO 8601).
-	AppliedAt *string `json:"applied_at,omitempty"`
-}
-
-// ObjectStorageEncryptionChange is the answer of EnableBucketEncryption. ReencryptJobID is set
-// when the bucket had objects: they are being encrypted in the background.
-type ObjectStorageEncryptionChange struct {
-	Detail         string `json:"detail"`
-	ReencryptJobID *int   `json:"reencrypt_job_id"`
 }
 
 // ObjectStorageLockRetention is an Object Lock default retention. Mode is "governance" (keys
@@ -226,10 +213,6 @@ type CreateObjectStorageBucketRequest struct {
 	ObjectLockDefault *ObjectStorageLockRetention `json:"object_lock_default,omitempty"`
 	// AcceptObjectLockTerms must be true with ObjectLock: it accepts the Object Lock terms.
 	AcceptObjectLockTerms bool `json:"accept_object_lock_terms,omitempty"`
-	// Encryption chooses encryption at rest (AES-256). nil keeps the default: on. Set it to a
-	// pointer to false to create the bucket without it; it can be enabled later
-	// (EnableBucketEncryption), never turned off.
-	Encryption *bool `json:"encryption,omitempty"`
 }
 
 // SetObjectStorageBucketObjectLockRequest changes the default retention of a bucket with Object
@@ -588,15 +571,6 @@ func (s *objectStorageService) SetObjectStorageBucketObjectLock(ctx context.Cont
 		req = &SetObjectStorageBucketObjectLockRequest{}
 	}
 	return s.client.put(ctx, fmt.Sprintf("/object-storage/buckets/%s/object-lock", url.PathEscape(uuid)), req, nil)
-}
-
-func (s *objectStorageService) EnableBucketEncryption(ctx context.Context, uuid string) (*ObjectStorageEncryptionChange, error) {
-	var change ObjectStorageEncryptionChange
-	body := map[string]bool{"enabled": true}
-	if err := s.client.put(ctx, fmt.Sprintf("/object-storage/buckets/%s/encryption", url.PathEscape(uuid)), body, &change); err != nil {
-		return nil, err
-	}
-	return &change, nil
 }
 
 func (s *objectStorageService) ListKeys(ctx context.Context, opts *ObjectStorageListOptions) ([]ObjectStorageKey, error) {
