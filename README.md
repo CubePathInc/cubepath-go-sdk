@@ -580,6 +580,50 @@ err = client.ObjectStorage.DeleteKey(ctx, key.UUID)
 err = client.ObjectStorage.DeleteBucket(ctx, bucket.UUID, true)
 ```
 
+#### Object Lock
+
+Object Lock (WORM) keeps object versions from being deleted or overwritten until their
+retention date. It can only be enabled when the bucket is created, never later; the bucket
+always keeps versioning enabled and is created with deletion protection on.
+
+- `governance`: keys created with `BypassGovernance` can still delete a version early (sending
+  `x-amz-bypass-governance-retention: true`).
+- `compliance`: nobody can delete a version or shorten its retention before the date, CubePath
+  included. Only organizations that support enabled for it can use it.
+
+```go
+days := 30
+bucket, err := client.ObjectStorage.CreateBucket(ctx, &cubepath.CreateObjectStorageBucketRequest{
+    Name:       "veeam-repo",
+    Tier:       "infrequent_access",
+    ObjectLock: true, // versioning is implied: do not set Versioning to false
+    ObjectLockDefault: &cubepath.ObjectStorageLockRetention{Mode: "governance", Days: &days}, // or Years
+    AcceptObjectLockTerms: true,
+})
+fmt.Println(bucket.ObjectLock.Enabled)
+
+// Change the default retention (a compliance rule can only be kept or lengthened)
+years := 1
+err = client.ObjectStorage.SetObjectStorageBucketObjectLock(ctx, bucket.UUID, &cubepath.SetObjectStorageBucketObjectLockRequest{
+    DefaultRetention:      &cubepath.ObjectStorageLockRetention{Mode: "governance", Years: &years},
+    AcceptObjectLockTerms: true, // needed when the rule turns compliance on or gets longer
+})
+// Remove it: DefaultRetention nil
+err = client.ObjectStorage.SetObjectStorageBucketObjectLock(ctx, bucket.UUID, &cubepath.SetObjectStorageBucketObjectLockRequest{})
+
+// A key that may delete governance versions early (read_write only)
+key, err := client.ObjectStorage.CreateKey(ctx, &cubepath.CreateObjectStorageKeyRequest{
+    Name: "veeam", Tier: "infrequent_access", Permission: "read_write", BypassGovernance: true,
+})
+
+// Delete: disable protection first; BypassGovernance (with Force) also purges governance versions.
+// Versions under compliance or a legal hold are kept: the bucket stays with LockedContentKept
+// set and keeps being billed until their retention ends, then delete it again.
+err = client.ObjectStorage.DeleteBucketWithOptions(ctx, bucket.UUID, &cubepath.DeleteObjectStorageBucketOptions{
+    Force: true, BypassGovernance: true,
+})
+```
+
 Serve a bucket publicly through the CDN by adding it as an origin of a CDN zone:
 
 ```go

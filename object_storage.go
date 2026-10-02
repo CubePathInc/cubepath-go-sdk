@@ -24,6 +24,13 @@ type ObjectStorageService interface {
 	// DeleteBucket deletes a bucket. Without force only an empty bucket is deleted; with force its
 	// content is purged first.
 	DeleteBucket(ctx context.Context, uuid string, force bool) error
+	// DeleteBucketWithOptions is DeleteBucket with every option, such as BypassGovernance for a
+	// bucket with Object Lock.
+	DeleteBucketWithOptions(ctx context.Context, uuid string, opts *DeleteObjectStorageBucketOptions) error
+	// SetObjectStorageBucketObjectLock changes or removes (DefaultRetention nil) the default
+	// retention of a bucket created with Object Lock. Object Lock itself can only be enabled
+	// when the bucket is created.
+	SetObjectStorageBucketObjectLock(ctx context.Context, uuid string, req *SetObjectStorageBucketObjectLockRequest) error
 
 	ListKeys(ctx context.Context, opts *ObjectStorageListOptions) ([]ObjectStorageKey, error)
 	// CreateKey creates an access key. The secret is only returned by this call.
@@ -105,6 +112,27 @@ type ObjectStorageBucket struct {
 	// Tags are the bucket labels (empty map when none). They are managed through the API only
 	// and are not visible through S3 bucket tagging.
 	Tags map[string]string `json:"tags"`
+	// ObjectLock tells whether the bucket was created with Object Lock and its default retention.
+	ObjectLock ObjectStorageObjectLock `json:"object_lock"`
+	// LockedContentKept is true when the last delete left versions protected by Object Lock
+	// (retention or legal hold); the bucket stays and keeps being billed until they expire.
+	LockedContentKept bool `json:"locked_content_kept"`
+}
+
+// ObjectStorageLockRetention is an Object Lock default retention. Mode is "governance" (keys
+// with BypassGovernance can still delete) or "compliance" (nobody can delete before the date).
+// Set exactly one of Days or Years.
+type ObjectStorageLockRetention struct {
+	Mode  string `json:"mode"`
+	Days  *int   `json:"days,omitempty"`
+	Years *int   `json:"years,omitempty"`
+}
+
+// ObjectStorageObjectLock is the Object Lock state of a bucket. DefaultRetention is nil when the
+// bucket has no default rule.
+type ObjectStorageObjectLock struct {
+	Enabled          bool                        `json:"enabled"`
+	DefaultRetention *ObjectStorageLockRetention `json:"default_retention"`
 }
 
 // ObjectStorageConnection holds the S3 connection details of a bucket.
@@ -159,19 +187,46 @@ type CreateObjectStorageBucketRequest struct {
 	Versioning bool   `json:"versioning,omitempty"`
 	// Tags are optional bucket labels: at most 50, key 1-128 and value 0-256 characters.
 	Tags map[string]string `json:"tags,omitempty"`
+	// ObjectLock creates the bucket with Object Lock (WORM). It can only be enabled now, never
+	// later, and implies versioning: leave Versioning false (it is not sent) or set it to true.
+	// The bucket is also created with deletion protection on.
+	ObjectLock bool `json:"object_lock,omitempty"`
+	// ObjectLockDefault is the optional default retention of new objects (only with ObjectLock).
+	ObjectLockDefault *ObjectStorageLockRetention `json:"object_lock_default,omitempty"`
+	// AcceptObjectLockTerms must be true with ObjectLock: it accepts the Object Lock terms.
+	AcceptObjectLockTerms bool `json:"accept_object_lock_terms,omitempty"`
+}
+
+// SetObjectStorageBucketObjectLockRequest changes the default retention of a bucket with Object
+// Lock. A nil DefaultRetention removes it (not allowed when the current rule is compliance, which
+// can only be kept or lengthened). AcceptObjectLockTerms is required when the change turns
+// compliance on or lengthens the retention.
+type SetObjectStorageBucketObjectLockRequest struct {
+	DefaultRetention      *ObjectStorageLockRetention `json:"default_retention"`
+	AcceptObjectLockTerms bool                        `json:"accept_object_lock_terms"`
+}
+
+// DeleteObjectStorageBucketOptions are the options of DeleteBucketWithOptions. Force purges the
+// bucket content first; BypassGovernance (only with Force, on a bucket with Object Lock) also
+// deletes the versions under governance retention. Versions under compliance retention or a
+// legal hold are always kept: the bucket then returns with LockedContentKept set.
+type DeleteObjectStorageBucketOptions struct {
+	Force            bool
+	BypassGovernance bool
 }
 
 // ObjectStorageBucketCreated is the response of a bucket creation.
 type ObjectStorageBucketCreated struct {
-	Detail    string                   `json:"detail"`
-	UUID      string                   `json:"uuid"`
-	Name      string                   `json:"name"`
-	Status    string                   `json:"status"`
-	ProjectID *int                     `json:"project_id"`
-	Tier      ObjectStorageTierSummary `json:"tier"`
-	Region    string                   `json:"region"`
-	Endpoint  string                   `json:"endpoint"`
-	Tags      map[string]string        `json:"tags"`
+	Detail     string                   `json:"detail"`
+	UUID       string                   `json:"uuid"`
+	Name       string                   `json:"name"`
+	Status     string                   `json:"status"`
+	ProjectID  *int                     `json:"project_id"`
+	Tier       ObjectStorageTierSummary `json:"tier"`
+	Region     string                   `json:"region"`
+	Endpoint   string                   `json:"endpoint"`
+	Tags       map[string]string        `json:"tags"`
+	ObjectLock ObjectStorageObjectLock  `json:"object_lock"`
 }
 
 // UpdateObjectStorageBucketRequest represents a request to update a bucket. Versioning is
@@ -204,6 +259,8 @@ type ObjectStorageKey struct {
 	Endpoint    string                   `json:"endpoint"`
 	Status      string                   `json:"status"`
 	ExpiresAt   *string                  `json:"expires_at"`
+	// BypassGovernance: the key may delete versions under governance retention (read_write only).
+	BypassGovernance bool `json:"bypass_governance"`
 }
 
 // CreateObjectStorageKeyRequest represents a request to create an access key. Permission is
@@ -216,23 +273,28 @@ type CreateObjectStorageKeyRequest struct {
 	Permission  string     `json:"permission"`
 	BucketUUIDs []string   `json:"bucket_uuids,omitempty"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	// BypassGovernance lets the key delete object versions under governance retention (sending
+	// x-amz-bypass-governance-retention: true). Only for read_write keys; it cannot be changed
+	// later.
+	BypassGovernance bool `json:"bypass_governance,omitempty"`
 }
 
 // ObjectStorageKeyCreated is the response of an access key creation, including the secret.
 type ObjectStorageKeyCreated struct {
-	Detail          string                   `json:"detail"`
-	UUID            string                   `json:"uuid"`
-	Name            string                   `json:"name"`
-	AccessKeyID     string                   `json:"access_key_id"`
-	SecretAccessKey string                   `json:"secret_access_key"`
-	Permission      string                   `json:"permission"`
-	BucketScope     []ObjectStorageBucketRef `json:"bucket_scope"`
-	ProjectID       *int                     `json:"project_id"`
-	Tier            ObjectStorageTierSummary `json:"tier"`
-	Region          string                   `json:"region"`
-	Endpoint        string                   `json:"endpoint"`
-	Status          string                   `json:"status"`
-	ExpiresAt       *string                  `json:"expires_at"`
+	Detail           string                   `json:"detail"`
+	UUID             string                   `json:"uuid"`
+	Name             string                   `json:"name"`
+	AccessKeyID      string                   `json:"access_key_id"`
+	SecretAccessKey  string                   `json:"secret_access_key"`
+	Permission       string                   `json:"permission"`
+	BucketScope      []ObjectStorageBucketRef `json:"bucket_scope"`
+	ProjectID        *int                     `json:"project_id"`
+	Tier             ObjectStorageTierSummary `json:"tier"`
+	Region           string                   `json:"region"`
+	Endpoint         string                   `json:"endpoint"`
+	Status           string                   `json:"status"`
+	ExpiresAt        *string                  `json:"expires_at"`
+	BypassGovernance bool                     `json:"bypass_governance"`
 }
 
 // ObjectStorageListOptions filters bucket and key lists. Tier is a tier uuid or slug.
@@ -393,11 +455,29 @@ func (s *objectStorageService) UpdateBucket(ctx context.Context, uuid string, re
 }
 
 func (s *objectStorageService) DeleteBucket(ctx context.Context, uuid string, force bool) error {
+	return s.DeleteBucketWithOptions(ctx, uuid, &DeleteObjectStorageBucketOptions{Force: force})
+}
+
+func (s *objectStorageService) DeleteBucketWithOptions(ctx context.Context, uuid string, opts *DeleteObjectStorageBucketOptions) error {
 	path := fmt.Sprintf("/object-storage/buckets/%s", url.PathEscape(uuid))
-	if force {
-		path += "?force=true"
+	v := url.Values{}
+	if opts != nil && opts.Force {
+		v.Set("force", "true")
+	}
+	if opts != nil && opts.BypassGovernance {
+		v.Set("bypass_governance", "true")
+	}
+	if len(v) > 0 {
+		path += "?" + v.Encode()
 	}
 	return s.client.del(ctx, path)
+}
+
+func (s *objectStorageService) SetObjectStorageBucketObjectLock(ctx context.Context, uuid string, req *SetObjectStorageBucketObjectLockRequest) error {
+	if req == nil {
+		req = &SetObjectStorageBucketObjectLockRequest{}
+	}
+	return s.client.put(ctx, fmt.Sprintf("/object-storage/buckets/%s/object-lock", url.PathEscape(uuid)), req, nil)
 }
 
 func (s *objectStorageService) ListKeys(ctx context.Context, opts *ObjectStorageListOptions) ([]ObjectStorageKey, error) {
