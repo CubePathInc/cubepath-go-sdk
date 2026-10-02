@@ -557,6 +557,12 @@ key, err := client.ObjectStorage.CreateKey(ctx, &cubepath.CreateObjectStorageKey
 })
 fmt.Println(key.AccessKeyID, key.SecretAccessKey, key.Endpoint, key.Region)
 
+// Encryption at rest (AES-256) is on by default. Create without it with Encryption: &off
+// (off := false); it can be enabled later, never turned off. The objects already stored are
+// encrypted in the background (change.ReencryptJobID); in a versioned bucket only the current
+// versions are.
+change, err := client.ObjectStorage.EnableBucketEncryption(ctx, bucket.UUID)
+
 // Versioning and deletion protection
 enabled := "enabled"
 err = client.ObjectStorage.UpdateBucket(ctx, bucket.UUID, &cubepath.UpdateObjectStorageBucketRequest{Versioning: &enabled})
