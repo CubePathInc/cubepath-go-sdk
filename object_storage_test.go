@@ -313,3 +313,52 @@ func TestObjectStorageBucketMetricsNotFound(t *testing.T) {
 		t.Fatalf("default range %v", vars["range"])
 	}
 }
+
+func TestObjectStorageBucketLifecycle(t *testing.T) {
+	var rec recorded
+	c := newTestClient(t, 200, `{"bucket_uuid":"b1","status":"pending","generation":4,"applied_generation":3,"error":null,"notes":["n"],
+		"rules":[{"id":"logs-30d","enabled":true,"filter":{"prefix":"logs/","tags":null},"expiration":{"days":30,"date":null},"noncurrent_version_expiration":null,"abort_incomplete_multipart_upload":null}]}`, &rec)
+	lc, err := c.ObjectStorage.GetBucketLifecycle(context.Background(), "b1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Method != http.MethodGet || rec.Path != "/object-storage/buckets/b1/lifecycle" {
+		t.Fatalf("got %+v", rec)
+	}
+	if lc.Applied() || len(lc.Rules) != 1 || *lc.Rules[0].Filter.Prefix != "logs/" || *lc.Rules[0].Expiration.Days != 30 {
+		t.Fatalf("decoded %+v", lc)
+	}
+
+	c = newTestClient(t, 202, `{"detail":"Lifecycle rules are being applied","generation":5,"notes":[]}`, &rec)
+	days, keep, prefix := 30, 3, "logs/"
+	change, err := c.ObjectStorage.PutBucketLifecycle(context.Background(), "b1", []ObjectStorageLifecycleRule{
+		{ID: "logs-30d", Enabled: true, Filter: &ObjectStorageLifecycleFilter{Prefix: &prefix}, Expiration: &ObjectStorageLifecycleExpiration{Days: &days}},
+		{ID: "versions", Enabled: true, NoncurrentVersionExpiration: &ObjectStorageLifecycleNoncurrentExpiration{NoncurrentDays: 7, NewerNoncurrentVersions: &keep}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Method != http.MethodPut || rec.Path != "/object-storage/buckets/b1/lifecycle" || *change.Generation != 5 {
+		t.Fatalf("got %+v %+v", rec, change)
+	}
+	rules := rec.Body["rules"].([]interface{})
+	first, second := rules[0].(map[string]interface{}), rules[1].(map[string]interface{})
+	if first["expiration"].(map[string]interface{})["days"] != float64(30) || first["filter"].(map[string]interface{})["prefix"] != "logs/" {
+		t.Fatalf("first rule %v", first)
+	}
+	if _, ok := second["filter"]; ok {
+		t.Fatalf("a nil filter must be omitted: %v", second)
+	}
+	if second["noncurrent_version_expiration"].(map[string]interface{})["newer_noncurrent_versions"] != float64(3) {
+		t.Fatalf("second rule %v", second)
+	}
+
+	c = newTestClient(t, 200, `{"detail":"This bucket has no lifecycle rules"}`, &rec)
+	change, err = c.ObjectStorage.DeleteBucketLifecycle(context.Background(), "b1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Method != http.MethodDelete || change.Generation != nil {
+		t.Fatalf("got %+v %+v", rec, change)
+	}
+}
