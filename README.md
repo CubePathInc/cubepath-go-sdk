@@ -597,6 +597,58 @@ lifecycle, err := client.ObjectStorage.GetBucketLifecycle(ctx, bucket.UUID) // p
 _, err = client.ObjectStorage.DeleteBucketLifecycle(ctx, bucket.UUID)
 ```
 
+#### Replication
+
+A bucket can replicate its new objects to one destination: another CubePath bucket of the same
+tier, or an external S3 compatible bucket (AWS S3, Wasabi or another provider with versioning)
+over HTTPS on port 443. Versioning must be enabled on the source (and on a CubePath destination),
+and a bucket with Object Lock cannot be a source. Both CubePath buckets live in the same storage
+cluster, so for an off site copy use an external destination. Data sent to an external
+destination is billed as egress of the source bucket.
+
+```go
+// To a CubePath bucket of the same organization (add GrantToken for another organization's bucket)
+rep, err := client.ObjectStorage.CreateReplication(ctx, &cubepath.CreateObjectStorageReplicationRequest{
+    SourceBucketUUID: bucket.UUID,
+    Destination:      cubepath.ObjectStorageReplicationDestinationRequest{Type: "cubepath", BucketUUID: backup.UUID},
+})
+
+// To an external provider (the secret is never returned)
+prefix := "img/"
+rep, err = client.ObjectStorage.CreateReplication(ctx, &cubepath.CreateObjectStorageReplicationRequest{
+    SourceBucketUUID: bucket.UUID,
+    Destination: cubepath.ObjectStorageReplicationDestinationRequest{
+        Type: "external", Provider: "aws", Endpoint: "s3.eu-west-1.amazonaws.com", Region: "eu-west-1",
+        Bucket: "acme-backup", AccessKeyID: awsKey, SecretAccessKey: awsSecret,
+    },
+    Prefix: &prefix,
+})
+detail, err := client.ObjectStorage.GetReplication(ctx, rep.UUID) // poll until Status == "active"; Health, Backfill, Metrics
+
+// Pause, remove the prefix filter, rotate external credentials, resend existing objects, remove
+off := false
+err = client.ObjectStorage.UpdateReplication(ctx, rep.UUID, &cubepath.UpdateObjectStorageReplicationRequest{Enabled: &off, RemovePrefix: true})
+err = client.ObjectStorage.UpdateReplication(ctx, rep.UUID, &cubepath.UpdateObjectStorageReplicationRequest{
+    Destination: &cubepath.ObjectStorageReplicationCredentials{AccessKeyID: newKey, SecretAccessKey: newSecret},
+})
+err = client.ObjectStorage.ResyncReplication(ctx, rep.UUID, nil) // or &days: only objects older than that
+err = client.ObjectStorage.DeleteReplication(ctx, rep.UUID)      // replicated data stays in the destination
+
+// Outgoing and incoming replications
+reps, err := client.ObjectStorage.ListReplications(ctx, &cubepath.ObjectStorageReplicationListOptions{Direction: "incoming"})
+err = client.ObjectStorage.RevokeReplication(ctx, reps[0].UUID) // destination owner stops an incoming replication
+```
+
+To let another organization replicate into one of your buckets, create a grant and give it the
+token (shown once, one use, expires in 1 to 30 days, 7 by default):
+
+```go
+grant, err := client.ObjectStorage.CreateReplicationGrant(ctx, backup.UUID, &cubepath.CreateObjectStorageReplicationGrantRequest{ExpiresInDays: 7})
+fmt.Println(grant.Token)
+grants, err := client.ObjectStorage.ListReplicationGrants(ctx, backup.UUID)
+err = client.ObjectStorage.DeleteReplicationGrant(ctx, grant.UUID) // revoke it while it is unused
+```
+
 #### Object Lock
 
 Object Lock (WORM) keeps object versions from being deleted or overwritten until their

@@ -56,6 +56,35 @@ type ObjectStorageService interface {
 	PutBucketLifecycle(ctx context.Context, uuid string, rules []ObjectStorageLifecycleRule) (*ObjectStorageLifecycleChange, error)
 	// DeleteBucketLifecycle removes every lifecycle rule of a bucket.
 	DeleteBucketLifecycle(ctx context.Context, uuid string) (*ObjectStorageLifecycleChange, error)
+
+	// ListReplications lists the replications of the organization: outgoing (the source bucket
+	// is the caller's) and incoming (a bucket of the caller receives data from another
+	// organization).
+	ListReplications(ctx context.Context, opts *ObjectStorageReplicationListOptions) ([]ObjectStorageReplication, error)
+	// GetReplication returns one outgoing replication with its metrics.
+	GetReplication(ctx context.Context, uuid string) (*ObjectStorageReplicationDetail, error)
+	// CreateReplication replicates a bucket (versioning enabled, no Object Lock) to a CubePath
+	// bucket or to an external S3 compatible bucket over HTTPS. It is configured asynchronously:
+	// poll GetReplication until Status is "active".
+	CreateReplication(ctx context.Context, req *CreateObjectStorageReplicationRequest) (*ObjectStorageReplicationCreated, error)
+	// UpdateReplication changes the rules, pauses (Enabled false) or resumes a replication, or
+	// rotates the credentials of an external destination.
+	UpdateReplication(ctx context.Context, uuid string, req *UpdateObjectStorageReplicationRequest) error
+	// DeleteReplication stops a replication. Data already replicated stays in the destination.
+	DeleteReplication(ctx context.Context, uuid string) error
+	// ResyncReplication sends the existing objects again; olderThanDays nil means every object.
+	ResyncReplication(ctx context.Context, uuid string, olderThanDays *int) error
+	// RevokeReplication is called by the owner of the destination bucket to stop an incoming
+	// replication from another organization.
+	RevokeReplication(ctx context.Context, uuid string) error
+
+	// CreateReplicationGrant lets another organization replicate into a bucket. The token is
+	// only returned by this call; it can be used once.
+	CreateReplicationGrant(ctx context.Context, bucketUUID string, req *CreateObjectStorageReplicationGrantRequest) (*ObjectStorageReplicationGrantCreated, error)
+	// ListReplicationGrants lists the grants of a bucket (never the token).
+	ListReplicationGrants(ctx context.Context, bucketUUID string) ([]ObjectStorageReplicationGrant, error)
+	// DeleteReplicationGrant revokes a grant that was not used yet.
+	DeleteReplicationGrant(ctx context.Context, uuid string) error
 }
 
 // ObjectStorageTierSummary identifies the tier of a bucket or access key.
@@ -195,6 +224,15 @@ type ObjectStorageBucketDetail struct {
 	Connection     *ObjectStorageConnection  `json:"connection"`
 	Usage          *ObjectStorageBucketUsage `json:"usage"`
 	CDN            *ObjectStorageBucketCDN   `json:"cdn"`
+	// Replication is the outgoing replication of the bucket (nil when none) and how many
+	// replications write into it.
+	Replication *ObjectStorageBucketReplication `json:"replication"`
+}
+
+// ObjectStorageBucketReplication is the replication block of a bucket detail.
+type ObjectStorageBucketReplication struct {
+	Outgoing      *ObjectStorageReplication `json:"outgoing"`
+	IncomingCount int                       `json:"incoming_count"`
 }
 
 // CreateObjectStorageBucketRequest represents a request to create a bucket.
@@ -342,35 +380,39 @@ type ObjectStorageFreeTierUsage struct {
 
 // ObjectStorageUsageTier is the month usage of one tier.
 type ObjectStorageUsageTier struct {
-	Tier              ObjectStorageTierSummary              `json:"tier"`
-	StorageGiBHours   *float64                              `json:"storage_gib_hours"`
-	StorageGiBMonth   *float64                              `json:"storage_gib_month"`
-	EgressBytes       *int64                                `json:"egress_bytes"`
-	CDNBytes          *int64                                `json:"cdn_bytes"`
-	ClassARequests    *int64                                `json:"class_a_requests"`
-	ClassBRequests    *int64                                `json:"class_b_requests"`
-	ClassBCDNRequests *int64                                `json:"class_b_cdn_requests"`
-	Cost              float64                               `json:"cost"`
-	ProjectedCost     float64                               `json:"projected_cost"`
-	FreeTier          map[string]ObjectStorageFreeTierUsage `json:"free_tier"`
+	Tier              ObjectStorageTierSummary `json:"tier"`
+	StorageGiBHours   *float64                 `json:"storage_gib_hours"`
+	StorageGiBMonth   *float64                 `json:"storage_gib_month"`
+	EgressBytes       *int64                   `json:"egress_bytes"`
+	CDNBytes          *int64                   `json:"cdn_bytes"`
+	ClassARequests    *int64                   `json:"class_a_requests"`
+	ClassBRequests    *int64                   `json:"class_b_requests"`
+	ClassBCDNRequests *int64                   `json:"class_b_cdn_requests"`
+	// ReplicationEgressBytes is what replication to external destinations sent (billed as egress).
+	ReplicationEgressBytes *int64                                `json:"replication_egress_bytes"`
+	Cost                   float64                               `json:"cost"`
+	ProjectedCost          float64                               `json:"projected_cost"`
+	FreeTier               map[string]ObjectStorageFreeTierUsage `json:"free_tier"`
 }
 
 // ObjectStorageUsageBucket is the month usage of one bucket.
 type ObjectStorageUsageBucket struct {
-	UUID              string            `json:"uuid"`
-	Name              string            `json:"name"`
-	Status            string            `json:"status"`
-	ProjectID         *int              `json:"project_id"`
-	TierUUID          string            `json:"tier_uuid"`
-	StorageGiBHours   *float64          `json:"storage_gib_hours"`
-	StorageGiBMonth   *float64          `json:"storage_gib_month"`
-	EgressBytes       *int64            `json:"egress_bytes"`
-	CDNBytes          *int64            `json:"cdn_bytes"`
-	ClassARequests    *int64            `json:"class_a_requests"`
-	ClassBRequests    *int64            `json:"class_b_requests"`
-	ClassBCDNRequests *int64            `json:"class_b_cdn_requests"`
-	Cost              float64           `json:"cost"`
-	Tags              map[string]string `json:"tags"`
+	UUID              string   `json:"uuid"`
+	Name              string   `json:"name"`
+	Status            string   `json:"status"`
+	ProjectID         *int     `json:"project_id"`
+	TierUUID          string   `json:"tier_uuid"`
+	StorageGiBHours   *float64 `json:"storage_gib_hours"`
+	StorageGiBMonth   *float64 `json:"storage_gib_month"`
+	EgressBytes       *int64   `json:"egress_bytes"`
+	CDNBytes          *int64   `json:"cdn_bytes"`
+	ClassARequests    *int64   `json:"class_a_requests"`
+	ClassBRequests    *int64   `json:"class_b_requests"`
+	ClassBCDNRequests *int64   `json:"class_b_cdn_requests"`
+	// ReplicationEgressBytes is what replication to external destinations sent (billed as egress).
+	ReplicationEgressBytes *int64            `json:"replication_egress_bytes"`
+	Cost                   float64           `json:"cost"`
+	Tags                   map[string]string `json:"tags"`
 }
 
 // ObjectStorageUsage is the month usage of the organization per tier and bucket. Quantity
@@ -648,4 +690,326 @@ func (s *objectStorageService) DeleteBucketLifecycle(ctx context.Context, uuid s
 		return nil, err
 	}
 	return &change, nil
+}
+
+// ObjectStorageReplicationListOptions filters ListReplications. Direction is "outgoing",
+// "incoming" or "all" (default); BucketUUID keeps the replications whose source (outgoing) or
+// destination (incoming) is that bucket.
+type ObjectStorageReplicationListOptions struct {
+	Direction  string
+	BucketUUID string
+}
+
+// ObjectStorageReplicationTag is one tag of a replication filter.
+type ObjectStorageReplicationTag struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// ObjectStorageReplicationDestinationRequest is where a bucket replicates to.
+//
+// Type "cubepath": BucketUUID, plus GrantToken when the bucket belongs to another organization
+// (the destination owner creates it with CreateReplicationGrant). Both buckets are in the same
+// storage cluster, so this is not an off site copy.
+//
+// Type "external": an S3 compatible bucket with versioning, reached over HTTPS on port 443.
+// Endpoint is a public host name (optionally with ":443"), no scheme or path. Provider is "aws",
+// "wasabi" or "other" (informative), PathStyle "auto" (default), "on" or "off". The secret is
+// never returned. Data sent to an external destination is billed as egress of the source bucket.
+type ObjectStorageReplicationDestinationRequest struct {
+	Type            string `json:"type"`
+	BucketUUID      string `json:"bucket_uuid,omitempty"`
+	GrantToken      string `json:"grant_token,omitempty"`
+	Provider        string `json:"provider,omitempty"`
+	Endpoint        string `json:"endpoint,omitempty"`
+	Region          string `json:"region,omitempty"`
+	Bucket          string `json:"bucket,omitempty"`
+	PathStyle       string `json:"path_style,omitempty"`
+	AccessKeyID     string `json:"access_key_id,omitempty"`
+	SecretAccessKey string `json:"secret_access_key,omitempty"`
+}
+
+// CreateObjectStorageReplicationRequest creates a replication. Filter by Prefix or by Tags (1 to
+// 10, all must match), not both; DeleteMarkerReplication cannot be used with Tags.
+// ExistingObjects (default true when nil) copies what the bucket already holds.
+type CreateObjectStorageReplicationRequest struct {
+	SourceBucketUUID        string                                     `json:"source_bucket_uuid"`
+	Destination             ObjectStorageReplicationDestinationRequest `json:"destination"`
+	Prefix                  *string                                    `json:"prefix,omitempty"`
+	Tags                    []ObjectStorageReplicationTag              `json:"tags,omitempty"`
+	DeleteMarkerReplication bool                                       `json:"delete_marker_replication"`
+	DeleteReplication       bool                                       `json:"delete_replication"`
+	ExistingObjects         *bool                                      `json:"existing_objects,omitempty"`
+}
+
+// ObjectStorageReplicationCredentials are new credentials of an external destination.
+type ObjectStorageReplicationCredentials struct {
+	AccessKeyID     string `json:"access_key_id"`
+	SecretAccessKey string `json:"secret_access_key"`
+}
+
+// UpdateObjectStorageReplicationRequest changes a replication; nil fields are left unchanged.
+// Enabled false pauses it and true resumes it. Prefix or Tags replace the filter; RemovePrefix
+// and RemoveTags clear it (they win over Prefix and Tags). Destination rotates the credentials
+// of an external destination.
+type UpdateObjectStorageReplicationRequest struct {
+	Enabled                 *bool
+	Prefix                  *string
+	RemovePrefix            bool
+	Tags                    []ObjectStorageReplicationTag
+	RemoveTags              bool
+	DeleteMarkerReplication *bool
+	DeleteReplication       *bool
+	ExistingObjects         *bool
+	Destination             *ObjectStorageReplicationCredentials
+}
+
+// MarshalJSON sends only the fields that are set, and an explicit null for RemovePrefix and
+// RemoveTags.
+func (r UpdateObjectStorageReplicationRequest) MarshalJSON() ([]byte, error) {
+	body := map[string]interface{}{}
+	if r.Enabled != nil {
+		body["enabled"] = *r.Enabled
+	}
+	if r.RemovePrefix {
+		body["prefix"] = nil
+	} else if r.Prefix != nil {
+		body["prefix"] = *r.Prefix
+	}
+	if r.RemoveTags {
+		body["tags"] = nil
+	} else if r.Tags != nil {
+		body["tags"] = r.Tags
+	}
+	if r.DeleteMarkerReplication != nil {
+		body["delete_marker_replication"] = *r.DeleteMarkerReplication
+	}
+	if r.DeleteReplication != nil {
+		body["delete_replication"] = *r.DeleteReplication
+	}
+	if r.ExistingObjects != nil {
+		body["existing_objects"] = *r.ExistingObjects
+	}
+	if r.Destination != nil {
+		body["destination"] = r.Destination
+	}
+	return json.Marshal(body)
+}
+
+// ObjectStorageReplicationSource is the source bucket of a replication. For an incoming
+// replication of another organization BucketUUID and ProjectID are nil.
+type ObjectStorageReplicationSource struct {
+	BucketUUID       *string `json:"bucket_uuid"`
+	BucketName       *string `json:"bucket_name"`
+	ProjectID        *int    `json:"project_id"`
+	OrganizationName *string `json:"organization_name"`
+	SameOrganization bool    `json:"same_organization"`
+}
+
+// ObjectStorageReplicationDestination is the destination of a replication. Type "cubepath" fills
+// BucketUUID, BucketName, ProjectID (only in the caller's organization), OrganizationName and
+// SameOrganization; type "external" fills Provider, Endpoint, Region, Bucket, PathStyle and
+// AccessKeyID (masked: "****" and its last 4 characters).
+type ObjectStorageReplicationDestination struct {
+	Type             string  `json:"type"`
+	BucketUUID       *string `json:"bucket_uuid,omitempty"`
+	BucketName       *string `json:"bucket_name,omitempty"`
+	ProjectID        *int    `json:"project_id,omitempty"`
+	OrganizationName *string `json:"organization_name,omitempty"`
+	SameOrganization bool    `json:"same_organization,omitempty"`
+	Provider         *string `json:"provider,omitempty"`
+	Endpoint         *string `json:"endpoint,omitempty"`
+	Region           *string `json:"region,omitempty"`
+	Bucket           *string `json:"bucket,omitempty"`
+	PathStyle        *string `json:"path_style,omitempty"`
+	AccessKeyID      *string `json:"access_key_id,omitempty"`
+}
+
+// ObjectStorageReplicationRules are the rules of a replication.
+type ObjectStorageReplicationRules struct {
+	Enabled                 bool                          `json:"enabled"`
+	Prefix                  *string                       `json:"prefix"`
+	Tags                    []ObjectStorageReplicationTag `json:"tags"`
+	DeleteMarkerReplication bool                          `json:"delete_marker_replication"`
+	DeleteReplication       bool                          `json:"delete_replication"`
+	ExistingObjects         bool                          `json:"existing_objects"`
+}
+
+// ObjectStorageReplicationBackfill is the copy of the existing objects. Status: none, queued,
+// running, completed or failed. The counters add up over every attempt and resync.
+type ObjectStorageReplicationBackfill struct {
+	Status        string  `json:"status"`
+	StartedAt     *string `json:"started_at"`
+	FinishedAt    *string `json:"finished_at"`
+	Objects       int64   `json:"objects"`
+	Bytes         int64   `json:"bytes"`
+	FailedObjects int64   `json:"failed_objects"`
+}
+
+// ObjectStorageReplicationMetrics is the latest measurement of a replication; fields are nil
+// when there is no sample yet. EgressBytesMonth is only set for external destinations.
+type ObjectStorageReplicationMetrics struct {
+	ReplicatedBytes24h   *int64  `json:"replicated_bytes_24h"`
+	ReplicatedObjects24h *int64  `json:"replicated_objects_24h"`
+	FailedObjects1h      *int64  `json:"failed_objects_1h"`
+	QueuedObjects        *int64  `json:"queued_objects"`
+	QueuedBytes          *int64  `json:"queued_bytes"`
+	LastSampleAt         *string `json:"last_sample_at"`
+	EgressBytesMonth     *int64  `json:"egress_bytes_month"`
+}
+
+// ObjectStorageReplication is a replication.
+//
+// Status: pending, active, paused (see PauseReason: customer, org, abuse, admin, source_blocked
+// or dest_revoked), suspended, error (see ErrorMessage) or deleting. Direction: outgoing or
+// incoming. Health: unknown, ok, lagging or failing (see HealthReason).
+type ObjectStorageReplication struct {
+	UUID            string                              `json:"uuid"`
+	Status          string                              `json:"status"`
+	PauseReason     *string                             `json:"pause_reason"`
+	Direction       string                              `json:"direction"`
+	Source          ObjectStorageReplicationSource      `json:"source"`
+	Destination     ObjectStorageReplicationDestination `json:"destination"`
+	Rules           ObjectStorageReplicationRules       `json:"rules"`
+	Health          string                              `json:"health"`
+	HealthReason    *string                             `json:"health_reason"`
+	HealthCheckedAt *string                             `json:"health_checked_at"`
+	Backfill        ObjectStorageReplicationBackfill    `json:"backfill"`
+	ErrorMessage    *string                             `json:"error_message"`
+	CreatedAt       *string                             `json:"created_at"`
+	ActiveAt        *string                             `json:"active_at"`
+}
+
+// ObjectStorageReplicationDetail is a replication with its metrics (nil when unavailable).
+type ObjectStorageReplicationDetail struct {
+	ObjectStorageReplication
+	Metrics *ObjectStorageReplicationMetrics `json:"metrics"`
+}
+
+// ObjectStorageReplicationCreated is the response of CreateReplication.
+type ObjectStorageReplicationCreated struct {
+	Detail string `json:"detail"`
+	UUID   string `json:"uuid"`
+	Status string `json:"status"`
+}
+
+// CreateObjectStorageReplicationGrantRequest creates a grant. ExpiresInDays is 1 to 30 (the API
+// uses 7 when it is 0).
+type CreateObjectStorageReplicationGrantRequest struct {
+	Note          *string `json:"note,omitempty"`
+	ExpiresInDays int     `json:"expires_in_days,omitempty"`
+}
+
+// ObjectStorageReplicationGrant is a grant of a bucket. Status: open, used, expired or revoked.
+type ObjectStorageReplicationGrant struct {
+	UUID        string  `json:"uuid"`
+	TokenPrefix string  `json:"token_prefix"`
+	Note        *string `json:"note"`
+	Status      string  `json:"status"`
+	ExpiresAt   *string `json:"expires_at"`
+	UsedAt      *string `json:"used_at"`
+	RevokedAt   *string `json:"revoked_at"`
+	CreatedAt   *string `json:"created_at"`
+}
+
+// ObjectStorageReplicationGrantCreated is the response of CreateReplicationGrant. Token is
+// only returned here: give it to the organization that will replicate into the bucket.
+type ObjectStorageReplicationGrantCreated struct {
+	Detail      string  `json:"detail"`
+	UUID        string  `json:"uuid"`
+	Token       string  `json:"token"`
+	TokenPrefix string  `json:"token_prefix"`
+	BucketUUID  string  `json:"bucket_uuid"`
+	Note        *string `json:"note"`
+	ExpiresAt   string  `json:"expires_at"`
+}
+
+func (o *ObjectStorageReplicationListOptions) query() string {
+	if o == nil {
+		return ""
+	}
+	v := url.Values{}
+	if o.Direction != "" {
+		v.Set("direction", o.Direction)
+	}
+	if o.BucketUUID != "" {
+		v.Set("bucket_uuid", o.BucketUUID)
+	}
+	if len(v) == 0 {
+		return ""
+	}
+	return "?" + v.Encode()
+}
+
+func replicationPath(uuid string) string {
+	return fmt.Sprintf("/object-storage/replications/%s", url.PathEscape(uuid))
+}
+
+func (s *objectStorageService) ListReplications(ctx context.Context, opts *ObjectStorageReplicationListOptions) ([]ObjectStorageReplication, error) {
+	var replications []ObjectStorageReplication
+	if err := s.client.get(ctx, "/object-storage/replications"+opts.query(), &replications); err != nil {
+		return nil, err
+	}
+	return replications, nil
+}
+
+func (s *objectStorageService) GetReplication(ctx context.Context, uuid string) (*ObjectStorageReplicationDetail, error) {
+	var replication ObjectStorageReplicationDetail
+	if err := s.client.get(ctx, replicationPath(uuid), &replication); err != nil {
+		return nil, err
+	}
+	return &replication, nil
+}
+
+func (s *objectStorageService) CreateReplication(ctx context.Context, req *CreateObjectStorageReplicationRequest) (*ObjectStorageReplicationCreated, error) {
+	var created ObjectStorageReplicationCreated
+	if err := s.client.post(ctx, "/object-storage/replications", req, &created); err != nil {
+		return nil, err
+	}
+	return &created, nil
+}
+
+func (s *objectStorageService) UpdateReplication(ctx context.Context, uuid string, req *UpdateObjectStorageReplicationRequest) error {
+	if req == nil {
+		req = &UpdateObjectStorageReplicationRequest{}
+	}
+	return s.client.patch(ctx, replicationPath(uuid), req, nil)
+}
+
+func (s *objectStorageService) DeleteReplication(ctx context.Context, uuid string) error {
+	return s.client.del(ctx, replicationPath(uuid))
+}
+
+func (s *objectStorageService) ResyncReplication(ctx context.Context, uuid string, olderThanDays *int) error {
+	body := map[string]interface{}{"older_than_days": olderThanDays}
+	return s.client.post(ctx, replicationPath(uuid)+"/resync", body, nil)
+}
+
+func (s *objectStorageService) RevokeReplication(ctx context.Context, uuid string) error {
+	return s.client.post(ctx, replicationPath(uuid)+"/revoke", map[string]interface{}{}, nil)
+}
+
+func (s *objectStorageService) CreateReplicationGrant(ctx context.Context, bucketUUID string, req *CreateObjectStorageReplicationGrantRequest) (*ObjectStorageReplicationGrantCreated, error) {
+	if req == nil {
+		req = &CreateObjectStorageReplicationGrantRequest{}
+	}
+	var grant ObjectStorageReplicationGrantCreated
+	path := fmt.Sprintf("/object-storage/buckets/%s/replication-grants", url.PathEscape(bucketUUID))
+	if err := s.client.post(ctx, path, req, &grant); err != nil {
+		return nil, err
+	}
+	return &grant, nil
+}
+
+func (s *objectStorageService) ListReplicationGrants(ctx context.Context, bucketUUID string) ([]ObjectStorageReplicationGrant, error) {
+	var grants []ObjectStorageReplicationGrant
+	path := fmt.Sprintf("/object-storage/buckets/%s/replication-grants", url.PathEscape(bucketUUID))
+	if err := s.client.get(ctx, path, &grants); err != nil {
+		return nil, err
+	}
+	return grants, nil
+}
+
+func (s *objectStorageService) DeleteReplicationGrant(ctx context.Context, uuid string) error {
+	return s.client.del(ctx, fmt.Sprintf("/object-storage/replication-grants/%s", url.PathEscape(uuid)))
 }
