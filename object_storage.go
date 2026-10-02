@@ -30,6 +30,15 @@ type ObjectStorageService interface {
 	DeleteKey(ctx context.Context, uuid string) error
 
 	GetUsage(ctx context.Context, opts *ObjectStorageUsageOptions) (*ObjectStorageUsage, error)
+
+	// GetBucketLifecycle returns the lifecycle rules of a bucket and whether they are applied.
+	GetBucketLifecycle(ctx context.Context, uuid string) (*ObjectStorageLifecycle, error)
+	// PutBucketLifecycle replaces every lifecycle rule of a bucket (1 to 100 rules). Rules are
+	// applied asynchronously: poll GetBucketLifecycle until AppliedGeneration reaches the
+	// returned Generation. Expiration rules delete objects permanently.
+	PutBucketLifecycle(ctx context.Context, uuid string, rules []ObjectStorageLifecycleRule) (*ObjectStorageLifecycleChange, error)
+	// DeleteBucketLifecycle removes every lifecycle rule of a bucket.
+	DeleteBucketLifecycle(ctx context.Context, uuid string) (*ObjectStorageLifecycleChange, error)
 }
 
 // ObjectStorageTierSummary identifies the tier of a bucket or access key.
@@ -280,6 +289,81 @@ type ObjectStorageUsage struct {
 	AvailableMonths  []string                   `json:"available_months"`
 }
 
+// ObjectStorageLifecycleTag is one tag of a lifecycle rule filter.
+type ObjectStorageLifecycleTag struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// ObjectStorageLifecycleFilter limits a rule to part of the bucket; nil fields (or a nil
+// filter) mean the whole bucket. A leading "/" of the prefix is removed by the API.
+type ObjectStorageLifecycleFilter struct {
+	Prefix                *string                     `json:"prefix,omitempty"`
+	Tags                  []ObjectStorageLifecycleTag `json:"tags,omitempty"`
+	ObjectSizeGreaterThan *int64                      `json:"object_size_greater_than,omitempty"`
+	ObjectSizeLessThan    *int64                      `json:"object_size_less_than,omitempty"`
+}
+
+// ObjectStorageLifecycleExpiration deletes current objects: after Days (1 to 36500), on Date
+// ("YYYY-MM-DD", after today UTC), or removes orphan delete markers
+// (ExpiredObjectDeleteMarker, alone).
+type ObjectStorageLifecycleExpiration struct {
+	Days                      *int    `json:"days,omitempty"`
+	Date                      *string `json:"date,omitempty"`
+	ExpiredObjectDeleteMarker *bool   `json:"expired_object_delete_marker,omitempty"`
+}
+
+// ObjectStorageLifecycleNoncurrentExpiration deletes noncurrent versions NoncurrentDays after
+// they stop being current, keeping the newest NewerNoncurrentVersions (1 to 100) if set.
+type ObjectStorageLifecycleNoncurrentExpiration struct {
+	NoncurrentDays          int  `json:"noncurrent_days"`
+	NewerNoncurrentVersions *int `json:"newer_noncurrent_versions,omitempty"`
+}
+
+// ObjectStorageLifecycleAbortUpload aborts incomplete multipart uploads after 1 to 7 days
+// (CubePath aborts them after 7 days anyway).
+type ObjectStorageLifecycleAbortUpload struct {
+	DaysAfterInitiation int `json:"days_after_initiation"`
+}
+
+// ObjectStorageLifecycleRule is one lifecycle rule. ID: 1 to 64 letters, numbers, dots,
+// hyphens and underscores, unique, not starting with "cubepath-". At least one action.
+type ObjectStorageLifecycleRule struct {
+	ID                             string                                      `json:"id"`
+	Enabled                        bool                                        `json:"enabled"`
+	Filter                         *ObjectStorageLifecycleFilter               `json:"filter,omitempty"`
+	Expiration                     *ObjectStorageLifecycleExpiration           `json:"expiration,omitempty"`
+	NoncurrentVersionExpiration    *ObjectStorageLifecycleNoncurrentExpiration `json:"noncurrent_version_expiration,omitempty"`
+	AbortIncompleteMultipartUpload *ObjectStorageLifecycleAbortUpload          `json:"abort_incomplete_multipart_upload,omitempty"`
+}
+
+// ObjectStorageLifecycle is the lifecycle of a bucket. Status: none, pending, active,
+// paused (the bucket is blocked or on hold) or error.
+type ObjectStorageLifecycle struct {
+	BucketUUID        string                       `json:"bucket_uuid"`
+	Status            string                       `json:"status"`
+	Rules             []ObjectStorageLifecycleRule `json:"rules"`
+	PlatformRules     []map[string]interface{}     `json:"platform_rules"`
+	Generation        int                          `json:"generation"`
+	AppliedGeneration int                          `json:"applied_generation"`
+	Error             *string                      `json:"error"`
+	UpdatedAt         *string                      `json:"updated_at"`
+	Notes             []string                     `json:"notes"`
+}
+
+// Applied reports whether the latest change of the rules reached the storage service.
+func (l *ObjectStorageLifecycle) Applied() bool {
+	return l.AppliedGeneration >= l.Generation
+}
+
+// ObjectStorageLifecycleChange is the answer of PutBucketLifecycle and DeleteBucketLifecycle.
+// Generation is nil when nothing changed.
+type ObjectStorageLifecycleChange struct {
+	Detail     string   `json:"detail"`
+	Generation *int     `json:"generation"`
+	Notes      []string `json:"notes"`
+}
+
 type objectStorageService struct {
 	client *Client
 }
@@ -391,4 +475,33 @@ func (s *objectStorageService) GetUsage(ctx context.Context, opts *ObjectStorage
 		return nil, err
 	}
 	return &usage, nil
+}
+
+func lifecyclePath(uuid string) string {
+	return fmt.Sprintf("/object-storage/buckets/%s/lifecycle", url.PathEscape(uuid))
+}
+
+func (s *objectStorageService) GetBucketLifecycle(ctx context.Context, uuid string) (*ObjectStorageLifecycle, error) {
+	var lifecycle ObjectStorageLifecycle
+	if err := s.client.get(ctx, lifecyclePath(uuid), &lifecycle); err != nil {
+		return nil, err
+	}
+	return &lifecycle, nil
+}
+
+func (s *objectStorageService) PutBucketLifecycle(ctx context.Context, uuid string, rules []ObjectStorageLifecycleRule) (*ObjectStorageLifecycleChange, error) {
+	var change ObjectStorageLifecycleChange
+	body := map[string]interface{}{"rules": rules}
+	if err := s.client.put(ctx, lifecyclePath(uuid), body, &change); err != nil {
+		return nil, err
+	}
+	return &change, nil
+}
+
+func (s *objectStorageService) DeleteBucketLifecycle(ctx context.Context, uuid string) (*ObjectStorageLifecycleChange, error) {
+	var change ObjectStorageLifecycleChange
+	if err := s.client.delWithResult(ctx, lifecyclePath(uuid), &change); err != nil {
+		return nil, err
+	}
+	return &change, nil
 }

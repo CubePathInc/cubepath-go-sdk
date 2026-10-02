@@ -568,6 +568,23 @@ err = client.ObjectStorage.DeleteKey(ctx, key.UUID)
 err = client.ObjectStorage.DeleteBucket(ctx, bucket.UUID, true)
 ```
 
+Lifecycle rules delete objects in the background, permanently. `PutBucketLifecycle` replaces
+every rule; the change is applied asynchronously (seconds, up to 10 minutes after a previous
+change of the same bucket) and objects go within 48 hours of their due date. In a versioned
+bucket an expiration only adds a delete marker: add a noncurrent version rule to free space.
+
+```go
+days, prefix := 30, "logs/"
+change, err := client.ObjectStorage.PutBucketLifecycle(ctx, bucket.UUID, []cubepath.ObjectStorageLifecycleRule{{
+    ID:         "logs-30d",
+    Enabled:    true,
+    Filter:     &cubepath.ObjectStorageLifecycleFilter{Prefix: &prefix},
+    Expiration: &cubepath.ObjectStorageLifecycleExpiration{Days: &days},
+}})
+lifecycle, err := client.ObjectStorage.GetBucketLifecycle(ctx, bucket.UUID) // poll until lifecycle.Applied()
+_, err = client.ObjectStorage.DeleteBucketLifecycle(ctx, bucket.UUID)
+```
+
 Serve a bucket publicly through the CDN by adding it as an origin of a CDN zone:
 
 ```go
