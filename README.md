@@ -652,6 +652,53 @@ origin, err := client.CDN.CreateOrigin(ctx, zone.UUID, &cubepath.CreateCDNOrigin
 
 Deleting that origin stops serving the bucket.
 
+#### Event Notifications
+
+Send bucket events (`object.created`, `object.removed`, `object.tagging`) to a signed webhook
+or to a Cloud Alerts channel. A destination belongs to the organization; a rule on a bucket picks
+the events, an optional key prefix and suffix, and the destination. The signing secret of a
+webhook is only returned by `CreateEventDestination` and `RotateEventDestinationSecret`: store it
+then. After a rotation the previous secret keeps signing for 24 hours.
+
+```go
+hook := "https://example.com/hooks/storage"
+created, err := client.ObjectStorage.CreateEventDestination(ctx, &cubepath.CreateObjectStorageEventDestinationRequest{
+    Name: "uploads-hook", Type: "webhook", URL: &hook, // or Type: "notificator", NotificatorID: &channelID
+})
+secret := *created.SigningSecret // whsec_..., shown only now
+
+rule, err := client.ObjectStorage.CreateEventRule(ctx, bucket.UUID, &cubepath.CreateObjectStorageEventRuleRequest{
+    Name:            "new-uploads",
+    DestinationUUID: created.Destination.UUID,
+    Events:          []string{cubepath.ObjectStorageEventCreated},
+    Prefix:          "incoming/",
+})
+// rule.Status is "pending" until the rule is applied to the bucket, then "active".
+
+err = client.ObjectStorage.TestEventDestination(ctx, created.Destination.UUID) // sends a cubepath.ping
+failed, err := client.ObjectStorage.ListEventDeliveries(ctx, created.Destination.UUID,
+    &cubepath.ObjectStorageEventDeliveryOptions{Status: "failed", Limit: 20})
+```
+
+Verify every webhook delivery before trusting it. `CubePath-Signature` holds one or more
+`v1=<hex>` values, each the HMAC-SHA256 of `CubePath-Timestamp + "." + raw body`;
+`VerifyStorageEventSignature` checks them in constant time and rejects timestamps more than
+5 minutes away (pass 0 for that default):
+
+```go
+func handler(w http.ResponseWriter, r *http.Request) {
+    body, _ := io.ReadAll(r.Body)
+    err := cubepath.VerifyStorageEventSignature(secret, r.Header.Get("CubePath-Timestamp"), body,
+        r.Header.Get("CubePath-Signature"), 0)
+    if err != nil {
+        http.Error(w, "bad signature", http.StatusUnauthorized)
+        return
+    }
+    // Deliveries are at least once: deduplicate by the CubePath-Event-Id header.
+    w.WriteHeader(http.StatusNoContent)
+}
+```
+
 #### Presigned URLs
 
 This SDK talks to the CubePath API, not to S3. To share one object for a while, sign a
