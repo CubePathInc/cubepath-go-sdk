@@ -85,6 +85,28 @@ type ObjectStorageService interface {
 	ListReplicationGrants(ctx context.Context, bucketUUID string) ([]ObjectStorageReplicationGrant, error)
 	// DeleteReplicationGrant revokes a grant that was not used yet.
 	DeleteReplicationGrant(ctx context.Context, uuid string) error
+
+	// Event notifications: destinations (organization wide) and rules (per bucket). Verify
+	// webhook deliveries with VerifyStorageEventSignature.
+	ListEventDestinations(ctx context.Context) ([]ObjectStorageEventDestination, error)
+	// CreateEventDestination returns the signing secret of a webhook destination; it is only
+	// shown here and on RotateEventDestinationSecret.
+	CreateEventDestination(ctx context.Context, req *CreateObjectStorageEventDestinationRequest) (*ObjectStorageEventDestinationSecret, error)
+	GetEventDestination(ctx context.Context, uuid string) (*ObjectStorageEventDestination, error)
+	UpdateEventDestination(ctx context.Context, uuid string, req *UpdateObjectStorageEventDestinationRequest) (*ObjectStorageEventDestination, error)
+	// DeleteEventDestination deletes a destination without rules.
+	DeleteEventDestination(ctx context.Context, uuid string) error
+	// RotateEventDestinationSecret issues a new signing secret; the previous one stays valid 24 h.
+	RotateEventDestinationSecret(ctx context.Context, uuid string) (*ObjectStorageEventDestinationSecret, error)
+	// TestEventDestination delivers a cubepath.ping now (the destination must be active); the
+	// outcome shows up in the delivery history.
+	TestEventDestination(ctx context.Context, uuid string) error
+	// ListEventDeliveries pages the delivery history back with opts.Before = NextBefore.
+	ListEventDeliveries(ctx context.Context, uuid string, opts *ObjectStorageEventDeliveryOptions) (*ObjectStorageEventDeliveries, error)
+	ListEventRules(ctx context.Context, bucketUUID string) ([]ObjectStorageEventRule, error)
+	CreateEventRule(ctx context.Context, bucketUUID string, req *CreateObjectStorageEventRuleRequest) (*ObjectStorageEventRule, error)
+	UpdateEventRule(ctx context.Context, bucketUUID, ruleUUID string, req *UpdateObjectStorageEventRuleRequest) (*ObjectStorageEventRule, error)
+	DeleteEventRule(ctx context.Context, bucketUUID, ruleUUID string) error
 }
 
 // ObjectStorageTierSummary identifies the tier of a bucket or access key.
