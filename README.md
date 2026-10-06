@@ -693,6 +693,24 @@ err = client.ObjectStorage.DeleteBucketWithOptions(ctx, bucket.UUID, &cubepath.D
 })
 ```
 
+#### Encryption at rest
+
+Every bucket stores its objects encrypted with AES-256 (SSE-S3), at no charge; there is nothing
+to configure and it cannot be turned off. `Encryption` on a bucket is `nil` until the bucket
+default is applied, then `Algorithm` is `AES256` and `Scope` is `all_objects`, or `new_objects`
+while objects uploaded before the default may still be stored unencrypted (they are re-encrypted
+in the background). SSE-KMS is not available; SSE-C (your own key in each request) works through
+any S3 client.
+
+```go
+detail, err := client.ObjectStorage.GetBucket(ctx, bucket.UUID)
+if detail.Encryption == nil {
+    fmt.Println("not applied yet")
+} else {
+    fmt.Println(detail.Encryption.Algorithm, detail.Encryption.Scope) // AES256 all_objects
+}
+```
+
 Serve a bucket publicly through the CDN by adding it as an origin of a CDN zone:
 
 ```go
