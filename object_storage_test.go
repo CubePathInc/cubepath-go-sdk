@@ -141,6 +141,64 @@ func TestObjectStorageKeys(t *testing.T) {
 	}
 }
 
+func TestObjectStorageUpdateKey(t *testing.T) {
+	str := func(v string) *string { return &v }
+	no := false
+	cases := []struct {
+		name string
+		req  UpdateObjectStorageKeyRequest
+		want string
+	}{
+		{"name only", UpdateObjectStorageKeyRequest{Name: str("web-2")}, `{"name":"web-2"}`},
+		{"permission", UpdateObjectStorageKeyRequest{Permission: str("read_only")}, `{"permission":"read_only"}`},
+		{"bucket list", UpdateObjectStorageKeyRequest{BucketUUIDs: []string{"b1", "b2"}}, `{"bucket_uuids":["b1","b2"]}`},
+		{"all buckets", UpdateObjectStorageKeyRequest{AllBuckets: true}, `{"bucket_uuids":null}`},
+		{"bypass false", UpdateObjectStorageKeyRequest{BypassGovernance: &no}, `{"bypass_governance":false}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var method, path, body string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				b, _ := io.ReadAll(r.Body)
+				method, path, body = r.Method, r.URL.Path, string(b)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"detail":"Access key updated."}`)
+			}))
+			defer srv.Close()
+			c, err := NewClient("token", WithBaseURL(srv.URL), WithMaxRetries(0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := c.ObjectStorage.UpdateKey(context.Background(), "k1", &tc.req); err != nil {
+				t.Fatal(err)
+			}
+			if method != http.MethodPatch || path != "/object-storage/keys/k1" || body != tc.want {
+				t.Fatalf("got %s %s %s, want %s", method, path, body, tc.want)
+			}
+		})
+	}
+}
+
+func TestObjectStorageUpdateKeyAllBucketsAndListIsRejected(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = io.WriteString(w, `{"detail":"ok"}`)
+	}))
+	defer srv.Close()
+	c, err := NewClient("token", WithBaseURL(srv.URL), WithMaxRetries(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.ObjectStorage.UpdateKey(context.Background(), "k1", &UpdateObjectStorageKeyRequest{AllBuckets: true, BucketUUIDs: []string{"b1"}})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if calls != 0 {
+		t.Fatalf("%d requests sent", calls)
+	}
+}
+
 func TestObjectStorageUsageQuery(t *testing.T) {
 	var rec recorded
 	c := newTestClient(t, 200, `{"period":"2026-09","metrics_available":false,"total_cost":1.5,"tiers":[{"storage_gib_month":null,"cost":1.5,"free_tier":{"egress_gb":{"included":5,"used":null}}}],"buckets":[],"available_months":["2026-09"]}`, &rec)

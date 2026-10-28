@@ -557,6 +557,16 @@ key, err := client.ObjectStorage.CreateKey(ctx, &cubepath.CreateObjectStorageKey
 })
 fmt.Println(key.AccessKeyID, key.SecretAccessKey, key.Endpoint, key.Region)
 
+// Edit a key in place (the access key id and the secret do not change). Only the fields set
+// are sent; AllBuckets gives access to every bucket of the project, BucketUUIDs limits it
+name, readOnly, noBypass := "backup-job-2", "read_only", false
+err = client.ObjectStorage.UpdateKey(ctx, key.UUID, &cubepath.UpdateObjectStorageKeyRequest{
+    Name:             &name,
+    Permission:       &readOnly,
+    BypassGovernance: &noBypass,
+    BucketUUIDs:      []string{bucket.UUID}, // or AllBuckets: true (not both)
+})
+
 // Versioning and deletion protection
 enabled := "enabled"
 err = client.ObjectStorage.UpdateBucket(ctx, bucket.UUID, &cubepath.UpdateObjectStorageBucketRequest{Versioning: &enabled})

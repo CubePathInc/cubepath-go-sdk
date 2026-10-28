@@ -35,6 +35,9 @@ type ObjectStorageService interface {
 	ListKeys(ctx context.Context, opts *ObjectStorageListOptions) ([]ObjectStorageKey, error)
 	// CreateKey creates an access key. The secret is only returned by this call.
 	CreateKey(ctx context.Context, req *CreateObjectStorageKeyRequest) (*ObjectStorageKeyCreated, error)
+	// UpdateKey edits an access key in place: its access key id and secret do not change. The new
+	// permission or buckets apply within a few seconds.
+	UpdateKey(ctx context.Context, uuid string, req *UpdateObjectStorageKeyRequest) error
 	DeleteKey(ctx context.Context, uuid string) error
 
 	GetUsage(ctx context.Context, opts *ObjectStorageUsageOptions) (*ObjectStorageUsage, error)
@@ -352,9 +355,46 @@ type CreateObjectStorageKeyRequest struct {
 	BucketUUIDs []string   `json:"bucket_uuids,omitempty"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 	// BypassGovernance lets the key delete object versions under governance retention (sending
-	// x-amz-bypass-governance-retention: true). Only for read_write keys; it cannot be changed
-	// later.
+	// x-amz-bypass-governance-retention: true). Only for read_write keys; UpdateKey can change it.
 	BypassGovernance bool `json:"bypass_governance,omitempty"`
+}
+
+// UpdateObjectStorageKeyRequest represents a request to edit an access key. Only the fields set
+// are sent. The expiration, tier and project are fixed at creation.
+//
+// Set AllBuckets to give the key access to every bucket of its project in the tier, including
+// future ones (the API receives "bucket_uuids": null); BucketUUIDs limits it to those buckets.
+// Leave both empty to keep the buckets unchanged. Setting both is an error and nothing is sent.
+// To turn a key with BypassGovernance into read_only, send BypassGovernance false too.
+type UpdateObjectStorageKeyRequest struct {
+	Name             *string
+	Permission       *string
+	BucketUUIDs      []string
+	AllBuckets       bool
+	BypassGovernance *bool
+}
+
+// MarshalJSON writes only the fields that are set.
+func (r UpdateObjectStorageKeyRequest) MarshalJSON() ([]byte, error) {
+	if r.AllBuckets && len(r.BucketUUIDs) > 0 {
+		return nil, fmt.Errorf("cubepath: AllBuckets and BucketUUIDs are mutually exclusive")
+	}
+	body := map[string]interface{}{}
+	if r.Name != nil {
+		body["name"] = *r.Name
+	}
+	if r.Permission != nil {
+		body["permission"] = *r.Permission
+	}
+	if r.AllBuckets {
+		body["bucket_uuids"] = nil
+	} else if len(r.BucketUUIDs) > 0 {
+		body["bucket_uuids"] = r.BucketUUIDs
+	}
+	if r.BypassGovernance != nil {
+		body["bypass_governance"] = *r.BypassGovernance
+	}
+	return json.Marshal(body)
 }
 
 // ObjectStorageKeyCreated is the response of an access key creation, including the secret.
@@ -651,6 +691,10 @@ func (s *objectStorageService) CreateKey(ctx context.Context, req *CreateObjectS
 		return nil, err
 	}
 	return &key, nil
+}
+
+func (s *objectStorageService) UpdateKey(ctx context.Context, uuid string, req *UpdateObjectStorageKeyRequest) error {
+	return s.client.patch(ctx, fmt.Sprintf("/object-storage/keys/%s", url.PathEscape(uuid)), req, nil)
 }
 
 func (s *objectStorageService) DeleteKey(ctx context.Context, uuid string) error {
