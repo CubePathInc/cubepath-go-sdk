@@ -2,6 +2,9 @@ package cubepath
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"testing"
@@ -134,6 +137,19 @@ func TestVerifyStorageEventSignature(t *testing.T) {
 		err := verifyStorageEventSignatureAt(eventVectorSecret, b.ts, []byte(b.body), b.header, 0, b.now)
 		if !errors.Is(err, ErrStorageEventSignature) {
 			t.Fatalf("%s: got %v", b.name, err)
+		}
+	}
+	signed := func(secret, ts string) string {
+		mac := hmac.New(sha256.New, []byte(secret))
+		mac.Write([]byte(ts + "." + eventVectorBody))
+		return "v1=" + hex.EncodeToString(mac.Sum(nil))
+	}
+	if err := verifyStorageEventSignatureAt("", eventVectorTimestamp, body, signed("", eventVectorTimestamp), 0, now); !errors.Is(err, ErrStorageEventSignature) {
+		t.Fatalf("empty secret: got %v", err)
+	}
+	for _, ts := range []string{"99999999999999999999", "-1", "+1790000000"} {
+		if err := verifyStorageEventSignatureAt(eventVectorSecret, ts, body, signed(eventVectorSecret, ts), -1, now); !errors.Is(err, ErrStorageEventSignature) {
+			t.Fatalf("malformed timestamp %q: got %v", ts, err)
 		}
 	}
 	if err := verifyStorageEventSignatureAt(eventVectorSecret, eventVectorTimestamp, body, "v1="+eventVectorSig, -1, now.Add(time.Hour)); err != nil {

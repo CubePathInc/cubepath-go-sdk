@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -264,8 +265,11 @@ func (s *objectStorageService) DeleteEventRule(ctx context.Context, bucketUUID, 
 }
 
 // ErrStorageEventSignature is returned by VerifyStorageEventSignature when no signature of the
-// header matches the body, or the timestamp is outside the tolerance.
+// header matches the body, the timestamp is malformed or outside the tolerance, or the secret is
+// empty, so a secret that was never configured verifies nothing.
 var ErrStorageEventSignature = errors.New("cubepath: storage event signature mismatch")
+
+var storageEventTimestamp = regexp.MustCompile(`^[0-9]{1,12}$`)
 
 // DefaultStorageEventTolerance is how far the CubePath-Timestamp of a delivery may be from now.
 const DefaultStorageEventTolerance = 5 * time.Minute
@@ -281,7 +285,11 @@ func VerifyStorageEventSignature(secret, timestamp string, body []byte, header s
 }
 
 func verifyStorageEventSignatureAt(secret, timestamp string, body []byte, header string, tolerance time.Duration, now time.Time) error {
-	ts, err := strconv.ParseInt(strings.TrimSpace(timestamp), 10, 64)
+	trimmed := strings.TrimSpace(timestamp)
+	if secret == "" || !storageEventTimestamp.MatchString(trimmed) {
+		return ErrStorageEventSignature
+	}
+	ts, err := strconv.ParseInt(trimmed, 10, 64)
 	if err != nil {
 		return ErrStorageEventSignature
 	}
