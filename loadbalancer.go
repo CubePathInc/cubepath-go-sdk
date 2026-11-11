@@ -151,7 +151,8 @@ type UpdateListenerRequest struct {
 	Enabled    *bool   `json:"enabled,omitempty"`
 }
 
-// AddTargetRequest represents a request to add a target.
+// AddTargetRequest represents a request to add a target. For a baremetal target, TargetUUID is
+// the server number as text (not its uuid).
 type AddTargetRequest struct {
 	TargetType string `json:"target_type"`
 	TargetUUID string `json:"target_uuid"`

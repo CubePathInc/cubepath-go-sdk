@@ -138,8 +138,8 @@ type CloudAlertActionRequest struct {
 	Enabled               *bool                  `json:"enabled,omitempty"`
 }
 
-// CreateCloudAlertRequest represents a request to create an alert. TargetID is the VPS or
-// baremetal id, or the availability group uuid. DurationSeconds defaults to 300 and
+// CreateCloudAlertRequest represents a request to create an alert. TargetID is the VPS id, the
+// baremetal server number (not its uuid), or the availability group uuid. DurationSeconds defaults to 300 and
 // CooldownSeconds to 600 when 0.
 type CreateCloudAlertRequest struct {
 	ProjectID       int                       `json:"project_id"`

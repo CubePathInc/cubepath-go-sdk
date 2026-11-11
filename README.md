@@ -188,6 +188,20 @@ err = client.VPS.ISOs().Unmount(ctx, vpsID)
 
 #### Bare Metal
 
+Every method that acts on a server takes a **reference as a string: the server number
+(`"5"`) or its uuid (any case, sent in lower case)**. Anything else is rejected before a
+request is made, and a server missing from the listing gives an `*APIError` with status 404
+(`cubepath.IsNotFound`). `Baremetal` has `ID` (the number) and `UUID` (empty on an API that
+does not send it), and `bm.Ref()` gives the number as text.
+
+The fields that echo a server in other resources still take the server **number**, not the
+uuid: route `NextHopTarget`, `CreateBGPPeerRequest.PeerTarget`,
+`AddTargetRequest.TargetUUID` and `CreateCloudAlertRequest.TargetID`.
+
+**Breaking change for the next minor release:** the baremetal methods took `int` and now
+take `string` (use `strconv.Itoa(id)` or `bm.Ref()`), and `FloatingIPs.Assign` takes the
+resource id as `string` too.
+
 ```go
 // Deploy a bare metal server
 task, err := client.Baremetal.Deploy(ctx, projectID, &cubepath.CreateBaremetalRequest{
@@ -199,6 +213,7 @@ task, err := client.Baremetal.Deploy(ctx, projectID, &cubepath.CreateBaremetalRe
 })
 
 // Power operations (start_metal, stop_metal, restart_metal)
+// bmID is "5" or "3f2a8c10-5b6d-4e7f-8a9b-0c1d2e3f4a5b"
 err = client.Baremetal.Power(ctx, bmID, "restart_metal")
 
 // Activate rescue mode
@@ -334,7 +349,10 @@ err = client.Networks.DeleteBGPPeer(ctx, network.ID, peer.PeerID)
 ip, err := client.FloatingIPs.Acquire(ctx, "IPv4", "us-mia-1")
 
 // Assign to a VPS
-err = client.FloatingIPs.Assign(ctx, "vps", vpsID, ip.Address)
+err = client.FloatingIPs.Assign(ctx, "vps", strconv.Itoa(vpsID), ip.Address)
+
+// Assign to a bare metal server (number or uuid)
+err = client.FloatingIPs.Assign(ctx, "baremetal", bmID, ip.Address)
 
 // Configure reverse DNS
 err = client.FloatingIPs.ConfigureReverseDNS(ctx, "203.0.113.10", "mail.example.com")

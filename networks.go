@@ -107,7 +107,8 @@ type BGPPeer struct {
 }
 
 // CreateBGPPeerRequest represents a request to create a BGP peer. PeerType is "ip" (PeerTarget
-// is an IP inside the network) or "vps"/"baremetal" (PeerTarget is the server id). RemoteASN
+// is an IP inside the network) or "vps"/"baremetal" (PeerTarget is the server id; for baremetal
+// the number, not the uuid). RemoteASN
 // must not be 64512. MaxPrefix defaults to 100 (1-1000).
 type CreateBGPPeerRequest struct {
 	PeerType    string `json:"peer_type"`
