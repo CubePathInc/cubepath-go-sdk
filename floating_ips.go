@@ -10,7 +10,9 @@ type FloatingIPService interface {
 	List(ctx context.Context) (*FloatingIPsResponse, error)
 	Acquire(ctx context.Context, ipType, locationName string) (*FloatingIP, error)
 	Release(ctx context.Context, address string) error
-	Assign(ctx context.Context, resourceType string, resourceID int, address string) error
+	// Assign assigns the address to a server. resourceType is "vps" or "baremetal"; resourceID
+	// is the VPS id as text ("12") or, for baremetal, the server number or uuid.
+	Assign(ctx context.Context, resourceType string, resourceID string, address string) error
 	Unassign(ctx context.Context, address string) error
 	ConfigureReverseDNS(ctx context.Context, ip, reverseDNS string) error
 }
@@ -66,8 +68,16 @@ func (s *floatingIPService) Release(ctx context.Context, address string) error {
 	return s.client.post(ctx, fmt.Sprintf("/floating_ips/release/%s", address), nil, nil)
 }
 
-func (s *floatingIPService) Assign(ctx context.Context, resourceType string, resourceID int, address string) error {
-	path := fmt.Sprintf("/floating_ips/assign/%s/%d?address=%s", resourceType, resourceID, address)
+func (s *floatingIPService) Assign(ctx context.Context, resourceType string, resourceID string, address string) error {
+	if resourceType == "baremetal" {
+		if err := validateBaremetalRef(resourceID); err != nil {
+			return err
+		}
+		resourceID = normalizeBaremetalRef(resourceID)
+	} else if !isDigits(resourceID) {
+		return fmt.Errorf("invalid %s id %q: expected a number", resourceType, resourceID)
+	}
+	path := fmt.Sprintf("/floating_ips/assign/%s/%s?address=%s", resourceType, resourceID, address)
 	return s.client.post(ctx, path, nil, nil)
 }
 

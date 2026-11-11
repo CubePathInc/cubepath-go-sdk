@@ -221,19 +221,19 @@ func TestEndpointRoutes(t *testing.T) {
 		// Baremetal
 		{"bm models", 200, `{"locations":[]}`, func(c *Client) error { _, err := c.Baremetal.ListModels(ctx); return err },
 			"GET", "/baremetal/models", "", nil},
-		{"bm os", 200, `[]`, func(c *Client) error { _, err := c.Baremetal.ListOS(ctx, 9); return err },
+		{"bm os", 200, `[]`, func(c *Client) error { _, err := c.Baremetal.ListOS(ctx, "9"); return err },
 			"GET", "/baremetal/os/9", "", nil},
-		{"bm kvm", 200, `{"url":"u"}`, func(c *Client) error { _, err := c.Baremetal.GetKVM(ctx, 9); return err },
+		{"bm kvm", 200, `{"url":"u"}`, func(c *Client) error { _, err := c.Baremetal.GetKVM(ctx, "9"); return err },
 			"GET", "/baremetal/9/kvm", "", nil},
-		{"bm protection", 200, `{}`, func(c *Client) error { return c.Baremetal.SetProtection(ctx, 9, true) },
+		{"bm protection", 200, `{}`, func(c *Client) error { return c.Baremetal.SetProtection(ctx, "9", true) },
 			"POST", "/baremetal/9/protection", "", map[string]interface{}{"enabled": true}},
-		{"bm move", 200, `{}`, func(c *Client) error { return c.Baremetal.MoveToProject(ctx, 9, 3) },
+		{"bm move", 200, `{}`, func(c *Client) error { return c.Baremetal.MoveToProject(ctx, "9", 3) },
 			"POST", "/baremetal/9/move-project", "", map[string]interface{}{"project_id": 3.0}},
-		{"bm key remove", 200, `{}`, func(c *Client) error { return c.Baremetal.RemoveSSHKey(ctx, 9, 4) },
+		{"bm key remove", 200, `{}`, func(c *Client) error { return c.Baremetal.RemoveSSHKey(ctx, "9", 4) },
 			"DELETE", "/baremetal/9/ssh-keys/4", "", nil},
-		{"bm network attach", 200, `{}`, func(c *Client) error { return c.Baremetal.AttachNetwork(ctx, 9, 12) },
+		{"bm network attach", 200, `{}`, func(c *Client) error { return c.Baremetal.AttachNetwork(ctx, "9", 12) },
 			"POST", "/baremetal/9/network", "", map[string]interface{}{"network_id": 12.0}},
-		{"bm network detach", 200, `{}`, func(c *Client) error { return c.Baremetal.DetachNetwork(ctx, 9) },
+		{"bm network detach", 200, `{}`, func(c *Client) error { return c.Baremetal.DetachNetwork(ctx, "9") },
 			"DELETE", "/baremetal/9/network", "", nil},
 
 		// Networks
@@ -338,7 +338,7 @@ func TestSSHKeyBodiesAreArrays(t *testing.T) {
 	ctx := context.Background()
 	for name, call := range map[string]func(c *Client) error{
 		"/vps/7/ssh-keys":       func(c *Client) error { return c.VPS.AddSSHKeys(ctx, 7, []int{4, 5}) },
-		"/baremetal/7/ssh-keys": func(c *Client) error { return c.Baremetal.AddSSHKeys(ctx, 7, []int{4, 5}) },
+		"/baremetal/7/ssh-keys": func(c *Client) error { return c.Baremetal.AddSSHKeys(ctx, "7", []int{4, 5}) },
 	} {
 		var rec rawRecorded
 		c := newRawTestClient(t, 200, `{"detail":"ok"}`, &rec)

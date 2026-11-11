@@ -76,7 +76,7 @@ func TestGraphQLNotFoundIsAPIError404(t *testing.T) {
 func TestBaremetalBMCSensorsViaGraphQL(t *testing.T) {
 	var rec recorded
 	c := newTestClient(t, 200, `{"data":{"baremetal":{"sensors":{"ipmiAvailable":true,"powerOn":true,"lastSeen":100,"temperatures":[{"name":"CPU","value":41.5,"unit":"CELSIUS"}],"fans":[{"name":"FAN1","value":3000,"unit":"RPM"}]}}}}`, &rec)
-	res, err := c.Baremetal.BMCSensors(context.Background(), 9)
+	res, err := c.Baremetal.BMCSensors(context.Background(), "9")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestBaremetalBMCSensorsViaGraphQL(t *testing.T) {
 func TestBaremetalBMCSensorsNeverPolled(t *testing.T) {
 	var rec recorded
 	c := newTestClient(t, 200, `{"data":{"baremetal":{"sensors":{"ipmiAvailable":null,"powerOn":null,"lastSeen":null,"temperatures":[],"fans":[]}}}}`, &rec)
-	res, err := c.Baremetal.BMCSensors(context.Background(), 9)
+	res, err := c.Baremetal.BMCSensors(context.Background(), "9")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestBaremetalBMCSensorsNeverPolled(t *testing.T) {
 func TestBaremetalReinstallStatusFromServerStatus(t *testing.T) {
 	var rec recorded
 	c := newTestClient(t, 200, `[{"id":1,"name":"p","baremetals":[{"id":9,"hostname":"h","status":"deploying"}]}]`, &rec)
-	st, err := c.Baremetal.ReinstallStatus(context.Background(), 9)
+	st, err := c.Baremetal.ReinstallStatus(context.Background(), "9")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestBaremetalReinstallStatusFromServerStatus(t *testing.T) {
 func TestBaremetalCancelReinstall(t *testing.T) {
 	var rec recorded
 	c := newTestClient(t, 200, `{"detail":"ok"}`, &rec)
-	if err := c.Baremetal.CancelReinstall(context.Background(), 9); err != nil {
+	if err := c.Baremetal.CancelReinstall(context.Background(), "9"); err != nil {
 		t.Fatal(err)
 	}
 	if rec.Method != http.MethodDelete || rec.Path != "/baremetal/9/reinstall" {
