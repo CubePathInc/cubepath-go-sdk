@@ -189,7 +189,7 @@ err = client.VPS.ISOs().Unmount(ctx, vpsID)
 #### Bare Metal
 
 Every method that acts on a server takes a **reference as a string: the server number
-(`"5"`) or its uuid (any case, sent in lower case)**. Anything else is rejected before a
+(`"5"`, from 1 to 9223372036854775807) or its uuid (any case, sent in lower case)**. Anything else is rejected before a
 request is made, and a server missing from the listing gives an `*APIError` with status 404
 (`cubepath.IsNotFound`). `Baremetal` has `ID` (the number) and `UUID` (empty on an API that
 does not send it), and `bm.Ref()` gives the number as text.

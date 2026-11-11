@@ -9,10 +9,24 @@ import (
 // API) or its uuid (8-4-4-4-12 hexadecimal, any case). The routes of the API take both.
 // These helpers are specific to baremetal: VPS and networks keep integer ids.
 
-// IsBaremetalRef reports whether ref has the shape of a baremetal reference: digits only
-// or a uuid.
+// maxBaremetalNumber is the largest number the API accepts (BIGINT max, 2^63-1).
+const maxBaremetalNumber = "9223372036854775807"
+
+// IsBaremetalRef reports whether ref has the shape of a baremetal reference: a number in
+// the range the API accepts (1 to 2^63-1, leading zeros ignored) or a uuid.
 func IsBaremetalRef(ref string) bool {
-	return isDigits(ref) || isUUID(ref)
+	return isBaremetalNumber(ref) || isUUID(ref)
+}
+
+func isBaremetalNumber(s string) bool {
+	if !isDigits(s) {
+		return false
+	}
+	t := strings.TrimLeft(s, "0")
+	if t == "" || len(t) > len(maxBaremetalNumber) {
+		return false
+	}
+	return len(t) < len(maxBaremetalNumber) || t <= maxBaremetalNumber
 }
 
 func isDigits(s string) bool {
@@ -51,7 +65,7 @@ func isUUID(s string) bool {
 // nor a uuid (an empty string, a path, a number with a sign or a space...).
 func validateBaremetalRef(ref string) error {
 	if !IsBaremetalRef(ref) {
-		return fmt.Errorf("invalid baremetal reference %q: expected a number or a uuid", ref)
+		return fmt.Errorf("invalid baremetal reference %q: expected a number (1 to 9223372036854775807) or a uuid", ref)
 	}
 	return nil
 }

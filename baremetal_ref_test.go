@@ -12,8 +12,8 @@ import (
 const testUUID = "3f2a8c10-5b6d-4e7f-8a9b-0c1d2e3f4a5b"
 
 func TestBaremetalRefValidation(t *testing.T) {
-	good := []string{"5", "007", testUUID, strings.ToUpper(testUUID)}
-	bad := []string{"", " 5", "5 ", "-5", "5.0", "1e3", "abc", "../x", "5/power", "5?x=1",
+	good := []string{"5", "007", "9223372036854775807", "0009223372036854775807", testUUID, strings.ToUpper(testUUID)}
+	bad := []string{"", "0", "000", "9223372036854775808", "99999999999999999999", " 5", "5 ", "-5", "5.0", "1e3", "abc", "../x", "5/power", "5?x=1",
 		"3f2a8c10-5b6d-4e7f-8a9b-0c1d2e3f4a5", "3f2a8c105b6d4e7f8a9b0c1d2e3f4a5b",
 		"3f2a8c10-5b6d-4e7f-8a9b-0c1d2e3f4a5g"}
 	for _, g := range good {
