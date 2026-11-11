@@ -152,7 +152,7 @@ type UpdateListenerRequest struct {
 }
 
 // AddTargetRequest represents a request to add a target. For a baremetal target, TargetUUID is
-// the server number as text (not its uuid).
+// the server uuid.
 type AddTargetRequest struct {
 	TargetType string `json:"target_type"`
 	TargetUUID string `json:"target_uuid"`
@@ -250,6 +250,15 @@ func (s *loadBalancerService) DeleteListener(ctx context.Context, lbUUID, listen
 }
 
 func (s *loadBalancerService) AddTarget(ctx context.Context, lbUUID, listenerUUID string, req *AddTargetRequest) (*LBTarget, error) {
+	if req != nil {
+		target, err := baremetalEcho(req.TargetType, req.TargetUUID)
+		if err != nil {
+			return nil, err
+		}
+		body := *req
+		body.TargetUUID = target
+		req = &body
+	}
 	var target LBTarget
 	if err := s.client.post(ctx, fmt.Sprintf("/loadbalancer/%s/listeners/%s/targets", lbUUID, listenerUUID), req, &target); err != nil {
 		return nil, err
@@ -296,8 +305,17 @@ func (s *loadBalancerService) MoveToProject(ctx context.Context, lbUUID string, 
 }
 
 func (s *loadBalancerService) AddTargets(ctx context.Context, lbUUID, listenerUUID string, targets []AddTargetRequest) ([]LBTarget, error) {
+	checked := make([]AddTargetRequest, len(targets))
+	for i, t := range targets {
+		target, err := baremetalEcho(t.TargetType, t.TargetUUID)
+		if err != nil {
+			return nil, err
+		}
+		t.TargetUUID = target
+		checked[i] = t
+	}
 	body := map[string]interface{}{
-		"targets": targets,
+		"targets": checked,
 	}
 	var result struct {
 		Targets []LBTarget `json:"targets"`

@@ -11,7 +11,7 @@ type FloatingIPService interface {
 	Acquire(ctx context.Context, ipType, locationName string) (*FloatingIP, error)
 	Release(ctx context.Context, address string) error
 	// Assign assigns the address to a server. resourceType is "vps" or "baremetal"; resourceID
-	// is the VPS id as text ("12") or, for baremetal, the server number or uuid.
+	// is the VPS id as text ("12") or, for baremetal, the server uuid.
 	Assign(ctx context.Context, resourceType string, resourceID string, address string) error
 	Unassign(ctx context.Context, address string) error
 	ConfigureReverseDNS(ctx context.Context, ip, reverseDNS string) error
@@ -70,10 +70,11 @@ func (s *floatingIPService) Release(ctx context.Context, address string) error {
 
 func (s *floatingIPService) Assign(ctx context.Context, resourceType string, resourceID string, address string) error {
 	if resourceType == "baremetal" {
-		if err := validateBaremetalRef(resourceID); err != nil {
+		ref, err := baremetalRef(resourceID)
+		if err != nil {
 			return err
 		}
-		resourceID = normalizeBaremetalRef(resourceID)
+		resourceID = ref
 	} else if !isDigits(resourceID) {
 		return fmt.Errorf("invalid %s id %q: expected a number", resourceType, resourceID)
 	}

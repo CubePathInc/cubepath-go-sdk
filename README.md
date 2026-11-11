@@ -188,19 +188,22 @@ err = client.VPS.ISOs().Unmount(ctx, vpsID)
 
 #### Bare Metal
 
-Every method that acts on a server takes a **reference as a string: the server number
-(`"5"`, from 1 to 9223372036854775807) or its uuid (any case, sent in lower case)**. Anything else is rejected before a
-request is made, and a server missing from the listing gives an `*APIError` with status 404
-(`cubepath.IsNotFound`). `Baremetal` has `ID` (the number) and `UUID` (empty on an API that
-does not send it), and `bm.Ref()` gives the number as text.
+A bare metal server is named by its **uuid**: `Baremetal.ID` is the uuid (a `string`) and
+`Baremetal.UUID` carries the same value. Every method that acts on a server takes it, in any
+case (it is sent in lower case). Anything else, a server number included, is rejected with
+`baremetal reference must be a uuid` before a request is made, and a server missing from the
+listing gives an `*APIError` with status 404 (`cubepath.IsNotFound`).
 
-The fields that echo a server in other resources still take the server **number**, not the
-uuid: route `NextHopTarget`, `CreateBGPPeerRequest.PeerTarget`,
-`AddTargetRequest.TargetUUID` and `CreateCloudAlertRequest.TargetID`.
+The fields that name a server in other resources take its uuid too: route `NextHopTarget`,
+`CreateBGPPeerRequest.PeerTarget`, `AddTargetRequest.TargetUUID` and
+`CreateCloudAlertRequest.TargetID` when their type is `baremetal`, and the API returns the uuid
+in them.
 
-**Breaking change for the next minor release:** the baremetal methods took `int` and now
-take `string` (use `strconv.Itoa(id)` or `bm.Ref()`), and `FloatingIPs.Assign` takes the
-resource id as `string` too.
+**Breaking change (unreleased):** the API no longer knows server numbers. `Baremetal.ID` is
+now the uuid `string` (it was the number), `Baremetal.Ref()` is gone (use `bm.ID`), and a number
+passed to any baremetal method, to `FloatingIPs.Assign(ctx, "baremetal", ...)` or to a
+baremetal target is refused locally. Replace stored numbers with the uuid shown in the panel or
+in `Baremetal.List`.
 
 ```go
 // Deploy a bare metal server
@@ -213,7 +216,7 @@ task, err := client.Baremetal.Deploy(ctx, projectID, &cubepath.CreateBaremetalRe
 })
 
 // Power operations (start_metal, stop_metal, restart_metal)
-// bmID is "5" or "3f2a8c10-5b6d-4e7f-8a9b-0c1d2e3f4a5b"
+// bmID is the server uuid, for example "3f2a8c10-5b6d-4e7f-8a9b-0c1d2e3f4a5b"
 err = client.Baremetal.Power(ctx, bmID, "restart_metal")
 
 // Activate rescue mode
@@ -351,7 +354,7 @@ ip, err := client.FloatingIPs.Acquire(ctx, "IPv4", "us-mia-1")
 // Assign to a VPS
 err = client.FloatingIPs.Assign(ctx, "vps", strconv.Itoa(vpsID), ip.Address)
 
-// Assign to a bare metal server (number or uuid)
+// Assign to a bare metal server (its uuid)
 err = client.FloatingIPs.Assign(ctx, "baremetal", bmID, ip.Address)
 
 // Configure reverse DNS

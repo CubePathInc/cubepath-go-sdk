@@ -72,7 +72,8 @@ type NetworkRoute struct {
 	NATGatewayName    string `json:"nat_gateway_name"`
 }
 
-// CreateNetworkRouteRequest represents a request to create a network route.
+// CreateNetworkRouteRequest represents a request to create a network route. With NextHopType
+// "baremetal", NextHopTarget is the server uuid.
 type CreateNetworkRouteRequest struct {
 	Destination   string `json:"destination"`
 	NextHopType   string `json:"next_hop_type"`
@@ -107,9 +108,8 @@ type BGPPeer struct {
 }
 
 // CreateBGPPeerRequest represents a request to create a BGP peer. PeerType is "ip" (PeerTarget
-// is an IP inside the network) or "vps"/"baremetal" (PeerTarget is the server id; for baremetal
-// the number, not the uuid). RemoteASN
-// must not be 64512. MaxPrefix defaults to 100 (1-1000).
+// is an IP inside the network), "vps" (PeerTarget is the VPS id) or "baremetal" (PeerTarget is
+// the server uuid). RemoteASN must not be 64512. MaxPrefix defaults to 100 (1-1000).
 type CreateBGPPeerRequest struct {
 	PeerType    string `json:"peer_type"`
 	PeerTarget  string `json:"peer_target"`
@@ -171,6 +171,15 @@ func (s *networkService) ListRoutes(ctx context.Context, networkID int) ([]Netwo
 }
 
 func (s *networkService) CreateRoute(ctx context.Context, networkID int, req *CreateNetworkRouteRequest) (*NetworkRoute, error) {
+	if req != nil {
+		target, err := baremetalEcho(req.NextHopType, req.NextHopTarget)
+		if err != nil {
+			return nil, err
+		}
+		body := *req
+		body.NextHopTarget = target
+		req = &body
+	}
 	var route NetworkRoute
 	if err := s.client.post(ctx, fmt.Sprintf("/networks/%d/routes", networkID), req, &route); err != nil {
 		return nil, err
@@ -198,6 +207,15 @@ func (s *networkService) ListBGPPeers(ctx context.Context, networkID int) ([]BGP
 }
 
 func (s *networkService) CreateBGPPeer(ctx context.Context, networkID int, req *CreateBGPPeerRequest) (*BGPPeerCreated, error) {
+	if req != nil {
+		target, err := baremetalEcho(req.PeerType, req.PeerTarget)
+		if err != nil {
+			return nil, err
+		}
+		body := *req
+		body.PeerTarget = target
+		req = &body
+	}
 	var peer BGPPeerCreated
 	if err := s.client.post(ctx, fmt.Sprintf("/networks/%d/bgp-peers", networkID), req, &peer); err != nil {
 		return nil, err

@@ -2,25 +2,22 @@ package cubepath
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 )
 
 // BaremetalService handles communication with the baremetal related methods of the CubePath API.
 //
-// Every method that takes baremetalID takes a server reference: the number (as text, "5") or
-// the uuid, in any case. Anything else is rejected before a request is made. Use Baremetal.Ref
-// to get the number of a server you already hold. The echo fields of other resources (route
-// NextHopTarget, BGP PeerTarget, load balancer TargetUUID, alert TargetID) are different: they
-// still take only the server number.
+// Every method that takes baremetalID takes the server uuid (Baremetal.ID), in any case.
+// Anything else, a number included, is rejected before a request is made. The fields that name
+// a baremetal server in other resources (route NextHopTarget, BGP PeerTarget, load balancer
+// TargetUUID, alert TargetID) take the uuid too.
 type BaremetalService interface {
 	Deploy(ctx context.Context, projectID int, req *CreateBaremetalRequest) (*TaskResponse, error)
 	List(ctx context.Context) ([]ProjectResponse, error)
-	// Get finds the server in the project listing by number or uuid. When it is not there it
-	// returns an *APIError with status 404 (see IsNotFound).
+	// Get finds the server in the project listing by uuid. When it is not there it returns an
+	// *APIError with status 404 (see IsNotFound).
 	Get(ctx context.Context, baremetalID string) (*Baremetal, error)
 	Update(ctx context.Context, baremetalID string, req *UpdateBaremetalRequest) error
 	Power(ctx context.Context, baremetalID string, action string) error
@@ -55,10 +52,9 @@ type BaremetalService interface {
 
 // Baremetal represents a baremetal server.
 type Baremetal struct {
-	// ID is the server number. It is the same number before and after the API moved to uuids.
-	ID int `json:"id"`
-	// UUID is the server uuid, empty when the API does not send it. It is accepted wherever a
-	// baremetal reference is (see Ref).
+	// ID is the server uuid, the reference every Baremetal method takes.
+	ID string `json:"id"`
+	// UUID carries the same uuid as ID.
 	UUID             string         `json:"uuid"`
 	Hostname         string         `json:"hostname"`
 	Label            string         `json:"label"`
@@ -74,41 +70,6 @@ type Baremetal struct {
 	SSHKey           *SSHKeyRef     `json:"ssh_key,omitempty"`
 	Protected        bool           `json:"protected"`
 	CreatedAt        time.Time      `json:"created_at"`
-}
-
-// Ref returns the number of the server as text, the form every Baremetal method takes as
-// its reference (UUID works too, when set).
-func (b *Baremetal) Ref() string {
-	return strconv.Itoa(b.ID)
-}
-
-// UnmarshalJSON reads "id" as a number or as a numeric string. A uuid sent as "id" is
-// kept in UUID, so a listing never fails to decode because of it.
-func (b *Baremetal) UnmarshalJSON(data []byte) error {
-	type plain Baremetal
-	aux := struct {
-		*plain
-		ID json.RawMessage `json:"id"`
-	}{plain: (*plain)(b)}
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-	raw := strings.TrimSpace(string(aux.ID))
-	if raw == "" || raw == "null" {
-		return nil
-	}
-	text := strings.Trim(raw, `"`)
-	if n, err := strconv.Atoi(text); err == nil {
-		b.ID = n
-		return nil
-	}
-	if raw[0] == '"' && isUUID(text) {
-		if b.UUID == "" {
-			b.UUID = strings.ToLower(text)
-		}
-		return nil
-	}
-	return fmt.Errorf("baremetal id %s is neither a number nor a uuid", raw)
 }
 
 // SSHKeyRef represents a reference to an SSH key.
@@ -295,17 +256,17 @@ func (s *baremetalService) List(ctx context.Context) ([]ProjectResponse, error) 
 }
 
 func (s *baremetalService) Get(ctx context.Context, baremetalID string) (*Baremetal, error) {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return nil, err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	projects, err := s.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, p := range projects {
 		for i := range p.Baremetals {
-			if sameBaremetalRef(baremetalID, p.Baremetals[i].ID, p.Baremetals[i].UUID) {
+			if strings.EqualFold(p.Baremetals[i].ID, baremetalID) {
 				return &p.Baremetals[i], nil
 			}
 		}
@@ -314,26 +275,26 @@ func (s *baremetalService) Get(ctx context.Context, baremetalID string) (*Bareme
 }
 
 func (s *baremetalService) Update(ctx context.Context, baremetalID string, req *UpdateBaremetalRequest) error {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	return s.client.patch(ctx, fmt.Sprintf("/baremetal/update/%s", baremetalID), req, nil)
 }
 
 func (s *baremetalService) Power(ctx context.Context, baremetalID string, action string) error {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	return s.client.post(ctx, fmt.Sprintf("/baremetal/%s/power/%s", baremetalID, action), nil, nil)
 }
 
 func (s *baremetalService) Rescue(ctx context.Context, baremetalID string) (*RescueResponse, error) {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return nil, err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	var result RescueResponse
 	if err := s.client.post(ctx, fmt.Sprintf("/baremetal/%s/rescue", baremetalID), nil, &result); err != nil {
 		return nil, err
@@ -342,20 +303,20 @@ func (s *baremetalService) Rescue(ctx context.Context, baremetalID string) (*Res
 }
 
 func (s *baremetalService) ResetBMC(ctx context.Context, baremetalID string) error {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	return s.client.post(ctx, fmt.Sprintf("/baremetal/%s/reset-bmc", baremetalID), nil, nil)
 }
 
 // BMCSensors returns the temperatures and fan speeds the BMC reported on its last poll.
 // Sensors are served through GraphQL; the old REST /bmc-sensors endpoint no longer exists.
 func (s *baremetalService) BMCSensors(ctx context.Context, baremetalID string) (*BMCSensors, error) {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return nil, err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	type sensor struct {
 		Name  string  `json:"name"`
 		Value float64 `json:"value"`
@@ -402,10 +363,10 @@ func (s *baremetalService) BMCSensors(ctx context.Context, baremetalID string) (
 }
 
 func (s *baremetalService) IPMISession(ctx context.Context, baremetalID string) (*IPMISession, error) {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return nil, err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	var result IPMISession
 	if err := s.client.post(ctx, fmt.Sprintf("/ipmi-proxy/create-session/%s", baremetalID), nil, &result); err != nil {
 		return nil, err
@@ -414,20 +375,20 @@ func (s *baremetalService) IPMISession(ctx context.Context, baremetalID string) 
 }
 
 func (s *baremetalService) Reinstall(ctx context.Context, baremetalID string, req *ReinstallBaremetalRequest) error {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	return s.client.post(ctx, fmt.Sprintf("/baremetal/%s/reinstall", baremetalID), req, nil)
 }
 
 // ReinstallStatus reports whether an OS reinstallation is running. The API no longer has a
 // dedicated status endpoint: a server is reinstalling while its status is "deploying".
 func (s *baremetalService) ReinstallStatus(ctx context.Context, baremetalID string) (*ReinstallStatus, error) {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return nil, err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	bm, err := s.Get(ctx, baremetalID)
 	if err != nil {
 		return nil, err
@@ -437,26 +398,26 @@ func (s *baremetalService) ReinstallStatus(ctx context.Context, baremetalID stri
 
 // CancelReinstall cancels a pending or running OS reinstallation.
 func (s *baremetalService) CancelReinstall(ctx context.Context, baremetalID string) error {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	return s.client.del(ctx, fmt.Sprintf("/baremetal/%s/reinstall", baremetalID))
 }
 
 func (s *baremetalService) MonitoringEnable(ctx context.Context, baremetalID string) error {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	return s.client.put(ctx, fmt.Sprintf("/baremetal/%s/monitoring?enable=true", baremetalID), nil, nil)
 }
 
 func (s *baremetalService) MonitoringDisable(ctx context.Context, baremetalID string) error {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	return s.client.put(ctx, fmt.Sprintf("/baremetal/%s/monitoring?enable=false", baremetalID), nil, nil)
 }
 
@@ -471,10 +432,10 @@ func (s *baremetalService) ListModels(ctx context.Context) ([]BaremetalModelLoca
 }
 
 func (s *baremetalService) ListOS(ctx context.Context, baremetalID string) ([]BaremetalOS, error) {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return nil, err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	var systems []BaremetalOS
 	if err := s.client.get(ctx, fmt.Sprintf("/baremetal/os/%s", baremetalID), &systems); err != nil {
 		return nil, err
@@ -483,10 +444,10 @@ func (s *baremetalService) ListOS(ctx context.Context, baremetalID string) ([]Ba
 }
 
 func (s *baremetalService) GetKVM(ctx context.Context, baremetalID string) (*BaremetalKVM, error) {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return nil, err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	var kvm BaremetalKVM
 	if err := s.client.get(ctx, fmt.Sprintf("/baremetal/%s/kvm", baremetalID), &kvm); err != nil {
 		return nil, err
@@ -495,10 +456,10 @@ func (s *baremetalService) GetKVM(ctx context.Context, baremetalID string) (*Bar
 }
 
 func (s *baremetalService) SetProtection(ctx context.Context, baremetalID string, enabled bool) error {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	body := map[string]interface{}{
 		"enabled": enabled,
 	}
@@ -506,10 +467,10 @@ func (s *baremetalService) SetProtection(ctx context.Context, baremetalID string
 }
 
 func (s *baremetalService) MoveToProject(ctx context.Context, baremetalID string, projectID int) error {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	body := map[string]interface{}{
 		"project_id": projectID,
 	}
@@ -517,10 +478,10 @@ func (s *baremetalService) MoveToProject(ctx context.Context, baremetalID string
 }
 
 func (s *baremetalService) AddSSHKeys(ctx context.Context, baremetalID string, sshKeyIDs []int) error {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	if len(sshKeyIDs) == 0 {
 		return fmt.Errorf("at least one SSH key id is required")
 	}
@@ -528,18 +489,18 @@ func (s *baremetalService) AddSSHKeys(ctx context.Context, baremetalID string, s
 }
 
 func (s *baremetalService) RemoveSSHKey(ctx context.Context, baremetalID string, sshKeyID int) error {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	return s.client.del(ctx, fmt.Sprintf("/baremetal/%s/ssh-keys/%d", baremetalID, sshKeyID))
 }
 
 func (s *baremetalService) AttachNetwork(ctx context.Context, baremetalID string, networkID int) error {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	body := map[string]interface{}{
 		"network_id": networkID,
 	}
@@ -547,9 +508,9 @@ func (s *baremetalService) AttachNetwork(ctx context.Context, baremetalID string
 }
 
 func (s *baremetalService) DetachNetwork(ctx context.Context, baremetalID string) error {
-	if err := validateBaremetalRef(baremetalID); err != nil {
+	baremetalID, err := baremetalRef(baremetalID)
+	if err != nil {
 		return err
 	}
-	baremetalID = normalizeBaremetalRef(baremetalID)
 	return s.client.del(ctx, fmt.Sprintf("/baremetal/%s/network", baremetalID))
 }

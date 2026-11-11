@@ -139,7 +139,7 @@ type CloudAlertActionRequest struct {
 }
 
 // CreateCloudAlertRequest represents a request to create an alert. TargetID is the VPS id, the
-// baremetal server number (not its uuid), or the availability group uuid. DurationSeconds defaults to 300 and
+// baremetal server uuid or the availability group uuid. DurationSeconds defaults to 300 and
 // CooldownSeconds to 600 when 0.
 type CreateCloudAlertRequest struct {
 	ProjectID       int                       `json:"project_id"`
@@ -244,6 +244,15 @@ func (s *cloudAlertService) Get(ctx context.Context, alertID string) (*CloudAler
 }
 
 func (s *cloudAlertService) Create(ctx context.Context, req *CreateCloudAlertRequest) (*CloudAlert, error) {
+	if req != nil {
+		target, err := baremetalEcho(req.TargetType, req.TargetID)
+		if err != nil {
+			return nil, err
+		}
+		body := *req
+		body.TargetID = target
+		req = &body
+	}
 	var alert CloudAlert
 	if err := s.client.post(ctx, "/triggers/", req, &alert); err != nil {
 		return nil, err
@@ -252,6 +261,15 @@ func (s *cloudAlertService) Create(ctx context.Context, req *CreateCloudAlertReq
 }
 
 func (s *cloudAlertService) Update(ctx context.Context, alertID string, req *UpdateCloudAlertRequest) (*CloudAlert, error) {
+	if req != nil && req.TargetType != nil && req.TargetID != nil {
+		target, err := baremetalEcho(*req.TargetType, *req.TargetID)
+		if err != nil {
+			return nil, err
+		}
+		body := *req
+		body.TargetID = &target
+		req = &body
+	}
 	var alert CloudAlert
 	if err := s.client.put(ctx, "/triggers/"+url.PathEscape(alertID), req, &alert); err != nil {
 		return nil, err
