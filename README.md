@@ -508,6 +508,23 @@ origin, err := client.CDN.CreateOrigin(ctx, zone.UUID, &cubepath.CreateCDNOrigin
     Enabled:            true,
 })
 
+// HTTP health check: GET /healthz every 15 s, down after 2 failures unless it answers 200 or 204.
+// Omitted fields keep the API defaults (tcp, GET, "2xx 3xx", 10 s, 3). health_status "unknown"
+// means "not checked"; origin.HealthDetail and origin.HealthChangedAt say why and since when.
+origin, err = client.CDN.CreateOrigin(ctx, zone.UUID, &cubepath.CreateCDNOriginRequest{
+    Name:                      "api",
+    Address:                   "api.example.com",
+    Weight:                    100,
+    Priority:                  1,
+    HealthCheckEnabled:        true,
+    HealthCheckType:           "http",
+    HealthCheckPath:           "/healthz",
+    HealthCheckExpectedStatus: "200 204",
+    HealthCheckInterval:       15,
+    HealthCheckThreshold:      2,
+    Enabled:                   true,
+})
+
 // Create edge rules
 rule, err := client.CDN.CreateRule(ctx, zone.UUID, &cubepath.CreateCDNRuleRequest{
     Name:     "cache-static",

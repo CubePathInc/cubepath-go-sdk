@@ -115,11 +115,23 @@ type CDNOrigin struct {
 	IsBackup           bool   `json:"is_backup"`
 	HealthCheckEnabled bool   `json:"health_check_enabled"`
 	HealthCheckPath    string `json:"health_check_path"`
-	HealthStatus       string `json:"health_status"`
-	VerifySSL          bool   `json:"verify_ssl"`
-	HostHeader         string `json:"host_header"`
-	BasePath           string `json:"base_path"`
-	Enabled            bool   `json:"enabled"`
+	// HealthCheckType is "tcp" or "http"; the path, method and expected status only apply to "http".
+	HealthCheckType           string `json:"health_check_type"`
+	HealthCheckMethod         string `json:"health_check_method"`
+	HealthCheckExpectedStatus string `json:"health_check_expected_status"`
+	HealthCheckInterval       int    `json:"health_check_interval"`
+	HealthCheckThreshold      int    `json:"health_check_threshold"`
+	// HealthStatus is healthy, unhealthy or unknown. An origin with health checks disabled is
+	// "unknown", which means "not checked".
+	HealthStatus string `json:"health_status"`
+	// HealthDetail says why the origin is down, nil when there is nothing to report.
+	HealthDetail *string `json:"health_detail,omitempty"`
+	// HealthChangedAt is the ISO 8601 UTC time of the last health status change.
+	HealthChangedAt *string `json:"health_changed_at,omitempty"`
+	VerifySSL       bool    `json:"verify_ssl"`
+	HostHeader      string  `json:"host_header"`
+	BasePath        string  `json:"base_path"`
+	Enabled         bool    `json:"enabled"`
 	// ObjectStorageBucketUUID is set when the origin serves a CubePath Object Storage bucket.
 	ObjectStorageBucketUUID *string `json:"object_storage_bucket_uuid,omitempty"`
 	CreatedAt               string  `json:"created_at"`
@@ -270,11 +282,24 @@ type CreateCDNOriginRequest struct {
 	Priority           int    `json:"priority"`
 	IsBackup           bool   `json:"is_backup"`
 	HealthCheckEnabled bool   `json:"health_check_enabled"`
-	HealthCheckPath    string `json:"health_check_path"`
-	VerifySSL          bool   `json:"verify_ssl"`
-	HostHeader         string `json:"host_header,omitempty"`
-	BasePath           string `json:"base_path,omitempty"`
-	Enabled            bool   `json:"enabled"`
+	// HealthCheckPath is only used when HealthCheckType is "http" (the API defaults it to "/").
+	HealthCheckPath string `json:"health_check_path,omitempty"`
+	// HealthCheckType is "tcp" (default) or "http". The fields below are omitted when empty or
+	// zero so the API defaults apply.
+	HealthCheckType string `json:"health_check_type,omitempty"`
+	// HealthCheckMethod is "GET" (default) or "HEAD".
+	HealthCheckMethod string `json:"health_check_method,omitempty"`
+	// HealthCheckExpectedStatus is 1 to 8 statuses or classes separated by spaces, such as
+	// "200" or "2xx 3xx" (default).
+	HealthCheckExpectedStatus string `json:"health_check_expected_status,omitempty"`
+	// HealthCheckInterval is in seconds, 5 to 300 (default 10).
+	HealthCheckInterval int `json:"health_check_interval,omitempty"`
+	// HealthCheckThreshold is the number of checks that flip the status, 1 to 10 (default 3).
+	HealthCheckThreshold int    `json:"health_check_threshold,omitempty"`
+	VerifySSL            bool   `json:"verify_ssl"`
+	HostHeader           string `json:"host_header,omitempty"`
+	BasePath             string `json:"base_path,omitempty"`
+	Enabled              bool   `json:"enabled"`
 	// ObjectStorageBucketUUID makes the origin serve a CubePath Object Storage bucket.
 	ObjectStorageBucketUUID string `json:"object_storage_bucket_uuid,omitempty"`
 }
@@ -313,8 +338,14 @@ type UpdateCDNOriginRequest struct {
 	BasePath           *string `json:"base_path,omitempty"`
 	HealthCheckEnabled *bool   `json:"health_check_enabled,omitempty"`
 	HealthCheckPath    *string `json:"health_check_path,omitempty"`
-	VerifySSL          *bool   `json:"verify_ssl,omitempty"`
-	Enabled            *bool   `json:"enabled,omitempty"`
+	// Health check fields: see CreateCDNOriginRequest. A nil field stays unchanged.
+	HealthCheckType           *string `json:"health_check_type,omitempty"`
+	HealthCheckMethod         *string `json:"health_check_method,omitempty"`
+	HealthCheckExpectedStatus *string `json:"health_check_expected_status,omitempty"`
+	HealthCheckInterval       *int    `json:"health_check_interval,omitempty"`
+	HealthCheckThreshold      *int    `json:"health_check_threshold,omitempty"`
+	VerifySSL                 *bool   `json:"verify_ssl,omitempty"`
+	Enabled                   *bool   `json:"enabled,omitempty"`
 }
 
 // CreateCDNRuleRequest represents a request to create a CDN rule.
