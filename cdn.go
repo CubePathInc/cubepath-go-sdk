@@ -121,8 +121,8 @@ type CDNOrigin struct {
 	HealthCheckExpectedStatus string `json:"health_check_expected_status"`
 	HealthCheckInterval       int    `json:"health_check_interval"`
 	HealthCheckThreshold      int    `json:"health_check_threshold"`
-	// HealthStatus is healthy, unhealthy or unknown. An origin with health checks disabled is
-	// "unknown", which means "not checked".
+	// HealthStatus is healthy, unhealthy or unknown. "unknown" means no data yet, or "not checked" when no
+	// origin of the zone has its check on (the nodes check every origin of a zone once one has it on).
 	HealthStatus string `json:"health_status"`
 	// HealthDetail says why the origin is down, nil when there is nothing to report.
 	HealthDetail *string `json:"health_detail,omitempty"`
