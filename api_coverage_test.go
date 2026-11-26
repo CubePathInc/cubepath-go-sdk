@@ -526,3 +526,19 @@ func TestVPSCreateAlwaysSendsLabel(t *testing.T) {
 		t.Fatalf("label not sent: %v", rec.Body)
 	}
 }
+
+func TestVPSPlansDecodeDiscountFields(t *testing.T) {
+	var rec recorded
+	c := newTestClient(t, 200, `{"locations":[{"location_name":"us-va-1","description":"Ashburn","clusters":[{"cluster_name":"General Purpose","type":"shared","plans":[{"plan_name":"gp.nano","ram":2048,"cpu":1,"storage":40,"bandwidth":3,"price_per_hour":"0.07639","effective_price_per_hour":0.03819,"discount_percent":50,"discount_label":"Launch","status":2},{"plan_name":"gp.micro","ram":4096,"cpu":2,"storage":80,"bandwidth":4,"price_per_hour":"0.1","effective_price_per_hour":null,"discount_percent":null,"discount_label":null,"status":2}]}]}]}`, &rec)
+	plans, err := c.VPS.Plans(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps := plans.Locations[0].Clusters[0].Plans
+	if ps[0].EffectivePricePerHour == nil || *ps[0].EffectivePricePerHour != 0.03819 || *ps[0].DiscountPercent != 50 || *ps[0].DiscountLabel != "Launch" {
+		t.Fatalf("decoded %+v", ps[0])
+	}
+	if ps[1].EffectivePricePerHour != nil || ps[1].DiscountPercent != nil || ps[1].DiscountLabel != nil {
+		t.Fatalf("decoded %+v", ps[1])
+	}
+}

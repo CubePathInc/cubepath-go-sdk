@@ -72,6 +72,11 @@ type VPSPlan struct {
 	Storage      int    `json:"storage"`
 	Bandwidth    int    `json:"bandwidth"`
 	PricePerHour string `json:"price_per_hour"`
+	// EffectivePricePerHour is the hourly price with the active discount, nil when there is none.
+	// PricePerHour stays the list price.
+	EffectivePricePerHour *float64 `json:"effective_price_per_hour,omitempty"`
+	DiscountPercent       *float64 `json:"discount_percent,omitempty"`
+	DiscountLabel         *string  `json:"discount_label,omitempty"`
 	// Status is only set by Plans: 2 orderable, 1 out of stock.
 	Status int `json:"status,omitempty"`
 }
