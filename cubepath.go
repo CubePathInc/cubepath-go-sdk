@@ -20,7 +20,7 @@ const (
 	DefaultBaseURL = "https://api.cubepath.com"
 
 	// Version is the SDK version.
-	Version = "0.10.0"
+	Version = "0.11.0"
 
 	defaultUserAgent = "cubepath-sdk-go/" + Version
 )
